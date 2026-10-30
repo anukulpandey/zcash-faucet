@@ -1,0 +1,35 @@
+{
+  "name": "zcash-faucet",
+  "version": "1.0.0",
+  "description": "Zcash testnet coins (TAZ) from your terminal: npx zcash-faucet <address>",
+  "type": "module",
+  "bin": {
+    "zcash-faucet": "bin/zcash-faucet.js"
+  },
+  "files": [
+    "bin"
+  ],
+  "scripts": {
+    "test": "node --test",
+    "server": "node server/server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "zcash",
+    "zec",
+    "taz",
+    "testnet",
+    "faucet",
+    "cli",
+    "crypto"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/anukulpandey/zcash-faucet.git"
+  },
+  "homepage": "https://github.com/anukulpandey/zcash-faucet#readme",
+  "author": "anukulpandey",
+  "license": "MIT"
+}

@@ -1,0 +1,20 @@
+# Pings the faucet every 5 minutes. Opens (or comments on) an issue labelled "outage" when it is down or degraded.
+name: uptime
+on:
+  schedule: [{ cron: "*/5 * * * *" }]
+  workflow_dispatch:
+permissions: { issues: write }
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - env: { GH_TOKEN: "${{ github.token }}", URL: "${{ vars.FAUCET_URL }}" }
+        run: |
+          s=$(curl -fsS -m 20 "$URL/api/status" || echo '{}')
+          echo "$s"
+          if [ "$(echo "$s" | jq -r .healthy)" = true ] && [ "$(echo "$s" | jq -r '.spendableTaz > .dripTaz')" = true ]; then exit 0; fi
+          open=$(gh issue list -R "$GITHUB_REPOSITORY" -l outage -s open --json number -q '.[0].number')
+          msg="Faucet unhealthy at $(date -u +%FT%TZ): \`$s\`"
+          if [ -n "$open" ]; then gh issue comment "$open" -R "$GITHUB_REPOSITORY" -b "$msg"
+          else gh label create outage -R "$GITHUB_REPOSITORY" -c d73a4a 2>/dev/null; gh issue create -R "$GITHUB_REPOSITORY" -l outage -t "Faucet is down or dry" -b "$msg"; fi
+          exit 1
