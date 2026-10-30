@@ -126,6 +126,8 @@ DOMAIN=$(curl -s ifconfig.me).sslip.io GITHUB_CLIENT_ID=<your OAuth app id> dock
 docker compose logs faucet   # prints the faucet address: fund it with TAZ
 ```
 
+On Google Cloud's free tier, one command creates the VM, static IP and firewall: `PROJECT=<id> GITHUB_CLIENT_ID=<id> sh deploy/gcp.sh`
+
 1. Create a GitHub OAuth App (Settings → Developer settings → OAuth Apps) and **tick "Enable Device Flow"**. Only the Client ID is needed.
 2. Caddy gets a TLS certificate automatically. `sslip.io` gives you a free hostname for your IP.
 3. **Back up the seed:** `docker compose exec faucet zcash-devtool wallet -w /data/wallet display-mnemonic -i /data/identity.txt`
