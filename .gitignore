@@ -2,3 +2,4 @@ node_modules
 *.tgz
 data/
 launch-posts.md
+deploy/.faucet-wallet/
