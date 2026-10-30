@@ -10,6 +10,8 @@ services:
     envVars:
       - key: GITHUB_CLIENT_ID
         value: Ov23linDlmchxCCNh2jG
+      - key: GITHUB_CLIENT_SECRET
+        sync: false
       - key: WALLET_SEED
         sync: false
       - key: WALLET_BIRTHDAY

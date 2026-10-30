@@ -20,6 +20,8 @@ const C = {
   cooldownS: +env("COOLDOWN_HOURS", 24) * 3600,
   auth: env("AUTH", "github"), // github | none (none = local regtest only)
   ghClientId: env("GITHUB_CLIENT_ID", ""),
+  ghClientSecret: env("GITHUB_CLIENT_SECRET", ""), // lets the server verify + revoke login tokens
+  githubApi: env("GITHUB_API", "https://api.github.com"), // overridden only by tests
   minGhAgeDays: +env("MIN_GITHUB_AGE_DAYS", 30),
   explorer: env("EXPLORER_TX_URL", "https://testnet.zcashexplorer.app/transactions/"),
   syncEveryS: +env("SYNC_SECONDS", 60),
@@ -91,10 +93,28 @@ export function checkAddress(addr, network = C.network) {
   return null;
 }
 
+// Identity check for a GitHub device-flow token. Tokens not issued to this faucet's OAuth app, or carrying
+// any scopes, are refused before they are used at all; every token is revoked right after the check so it
+// can never be reused. The token is never stored or logged.
+const gh = (path, init = {}) => fetch(C.githubApi + path, { ...init, headers: { "user-agent": "zcash-faucet", accept: "application/vnd.github+json", ...init.headers } });
+const appAuth = () => ({ authorization: "Basic " + Buffer.from(`${C.ghClientId}:${C.ghClientSecret}`).toString("base64") });
+
 async function githubUser(token) {
-  const r = await fetch("https://api.github.com/user", { headers: { authorization: `Bearer ${token}`, "user-agent": "zcash-faucet" } });
-  if (!r.ok) return null;
-  return r.json();
+  const check = await gh(`/applications/${C.ghClientId}/token`, { method: "POST", headers: appAuth(), body: JSON.stringify({ access_token: token }) });
+  if (!check.ok) return null; // not a token of this app: never used
+  const { scopes } = await check.json();
+  try {
+    if (scopes?.length) return null;
+    const r = await gh("/user", { headers: { authorization: `Bearer ${token}` } });
+    return r.ok ? await r.json() : null;
+  } finally {
+    await revoke(token);
+  }
+}
+
+async function revoke(token) {
+  await gh(`/applications/${C.ghClientId}/token`, { method: "DELETE", headers: appAuth(), body: JSON.stringify({ access_token: token }) })
+    .catch((e) => console.error("token revoke failed:", e.message));
 }
 
 const sentToday = () => db.drips.filter((d) => d.ts > now() - 86400).reduce((s, d) => s + d.zat, 0);
@@ -268,7 +288,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 if (process.argv[1]?.endsWith("server.js")) {
-  if (C.auth === "github" && !C.ghClientId) throw new Error("Set GITHUB_CLIENT_ID (or AUTH=none for local regtest).");
+  if (C.auth === "github" && !(C.ghClientId && C.ghClientSecret)) throw new Error("Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET (or AUTH=none for local regtest).");
   server.listen(C.port, () => console.log(`zcash-faucet server on :${C.port} (${C.network}, auth=${C.auth})`));
   boot().then(sync).catch((e) => console.error("boot failed:", e.message));
   setInterval(sync, C.syncEveryS * 1000);

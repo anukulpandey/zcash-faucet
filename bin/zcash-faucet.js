@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // zcash-faucet: request Zcash testnet coins (TAZ) from your terminal.
 // Signs you in with GitHub (device flow, like `gh auth login`), then asks the faucet server to pay.
-import { readFileSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
@@ -9,7 +9,8 @@ import { pathToFileURL } from "node:url";
 
 const DEFAULT_FAUCET = "https://zcash-faucet.onrender.com"; // override with --faucet / ZCASH_FAUCET_URL
 const { version } = JSON.parse(readFileSync(new URL("../package.json", import.meta.url)));
-const TOKEN_FILE = join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "zcash-faucet", "github-token");
+// v1.0.0 cached the login token here; we no longer store it, and delete it if present.
+const OLD_TOKEN_FILE = join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "zcash-faucet", "github-token");
 
 const tty = process.stdout.isTTY && !process.env.NO_COLOR;
 const paint = (code) => (s) => (tty ? `\x1b[${code}m${s}\x1b[0m` : String(s));
@@ -65,10 +66,14 @@ function openBrowser(url) {
 }
 
 // GitHub OAuth device flow: https://docs.github.com/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps#device-flow
+// Signs in to the faucet's own OAuth app with NO scopes (public profile only). The token is kept in memory
+// for this one request, never written to disk; the server checks your account, then revokes the token.
 async function githubLogin(clientId) {
   const { body: dc } = await http("https://github.com/login/device/code", { method: "POST", body: JSON.stringify({ client_id: clientId, scope: "" }) });
   if (!dc.device_code) throw new Error(`GitHub login failed to start: ${dc.error_description ?? dc.error ?? "unknown error"}`);
-  console.log(`  ${bold("Sign in with GitHub")} ${dim("(one per day per account keeps bots out)")}\n`);
+  console.log(`  ${bold("Sign in with GitHub")} ${dim("(one claim per account per day keeps bots out)")}`);
+  console.log(`  ${dim("No permissions requested: the faucet only sees your public username and account age,")}`);
+  console.log(`  ${dim("then revokes the login right away. Nothing is saved on this computer.")}\n`);
   console.log(`  1. Open   ${cyan(dc.verification_uri)}`);
   console.log(`  2. Enter  ${bold(gold(dc.user_code))}\n`);
   openBrowser(dc.verification_uri);
@@ -83,8 +88,6 @@ async function githubLogin(clientId) {
     });
     if (t.access_token) {
       sp.stop(`${green("✔")} Signed in with GitHub\n`);
-      mkdirSync(join(TOKEN_FILE, ".."), { recursive: true });
-      writeFileSync(TOKEN_FILE, t.access_token, { mode: 0o600 });
       return t.access_token;
     }
     if (t.error === "slow_down") interval += 5000;
@@ -93,8 +96,6 @@ async function githubLogin(clientId) {
   sp.stop();
   throw new Error("GitHub login timed out. Run the command again.");
 }
-
-const savedToken = () => { try { return readFileSync(TOKEN_FILE, "utf8").trim(); } catch { return null; } };
 
 async function getStatus(base) {
   const { body } = await http(`${base}/api/status`);
@@ -122,34 +123,23 @@ async function showDonate(base) {
 
 async function claim(base, address) {
   const s = await getStatus(base);
-  let token = null;
-  if (s.auth === "github") {
-    token = savedToken() ?? (await githubLogin(s.githubClientId));
+  const token = s.auth === "github" ? await githubLogin(s.githubClientId) : null;
+  const sp = spinner(`Sending ${s.dripTaz} TAZ (building a shielded transaction takes ~10-60s)…`);
+  const r = await http(`${base}/api/claim`, {
+    method: "POST",
+    headers: token ? { authorization: `Bearer ${token}` } : {},
+    body: JSON.stringify({ address }),
+  });
+  sp.stop();
+  if (!r.body.ok) {
+    const wait = r.body.retryAfterSeconds ? dim(` (try again in ~${fmtWait(r.body.retryAfterSeconds)})`) : "";
+    throw new Error(`${r.body.error ?? `Faucet refused (HTTP ${r.status}).`}${wait}`);
   }
-  for (let attempt = 0; ; attempt++) {
-    const sp = spinner(`Sending ${s.dripTaz} TAZ (building a shielded transaction takes ~10-30s)…`);
-    const r = await http(`${base}/api/claim`, {
-      method: "POST",
-      headers: token ? { authorization: `Bearer ${token}` } : {},
-      body: JSON.stringify({ address }),
-    });
-    sp.stop();
-    if (r.body.needLogin && attempt === 0 && s.auth === "github") {
-      rmSync(TOKEN_FILE, { force: true });
-      token = await githubLogin(s.githubClientId);
-      continue;
-    }
-    if (!r.body.ok) {
-      const wait = r.body.retryAfterSeconds ? dim(` (try again in ~${fmtWait(r.body.retryAfterSeconds)})`) : "";
-      throw new Error(`${r.body.error ?? `Faucet refused (HTTP ${r.status}).`}${wait}`);
-    }
-    const b = r.body;
-    console.log(`\n  ${gold("ⓩ")}  ${bold(green(`${b.amountTaz} TAZ`))} on its way to ${cyan(address.slice(0, 14) + "…" + address.slice(-6))}\n`);
-    if (b.txid) console.log(`  ${dim("txid")}      ${b.txid}`);
-    if (b.explorerUrl) console.log(`  ${dim("explorer")}  ${cyan(b.explorerUrl)}`);
-    console.log(`\n  ${dim("Arrives after ~1 block (75s). Done testing? Give it back: npx zcash-faucet --donate")}`);
-    return;
-  }
+  const b = r.body;
+  console.log(`\n  ${gold("ⓩ")}  ${bold(green(`${b.amountTaz} TAZ`))} on its way to ${cyan(address.slice(0, 14) + "…" + address.slice(-6))}\n`);
+  if (b.txid) console.log(`  ${dim("txid")}      ${b.txid}`);
+  if (b.explorerUrl) console.log(`  ${dim("explorer")}  ${cyan(b.explorerUrl)}`);
+  console.log(`\n  ${dim("Arrives after ~1 block (75s). Done testing? Give it back: npx zcash-faucet --donate")}`);
 }
 
 const HELP = `
@@ -157,7 +147,6 @@ const HELP = `
     npx zcash-faucet <testnet-address>   request TAZ (signs in with GitHub once)
     npx zcash-faucet --status            faucet health, balance, drip size
     npx zcash-faucet --donate            address to send leftover TAZ back to
-    npx zcash-faucet --logout            forget the saved GitHub login
 
   ${bold("Options")}
     --faucet <url>   use another zcash-faucet server, e.g. your local regtest one
@@ -167,13 +156,13 @@ const HELP = `
 `;
 
 async function main(argv) {
+  rmSync(OLD_TOKEN_FILE, { force: true });
   const args = [...argv];
   const fi = args.indexOf("--faucet");
   const base = (fi >= 0 ? args.splice(fi, 2)[1] : process.env.ZCASH_FAUCET_URL || DEFAULT_FAUCET)?.replace(/\/+$/, "");
   if (args.includes("-v") || args.includes("--version")) return console.log(version);
   console.log(gold(BANNER));
   if (!base) throw new Error("--faucet needs a URL.");
-  if (args.includes("--logout")) { rmSync(TOKEN_FILE, { force: true }); return console.log(`  ${green("✔")} Logged out.`); }
   if (args.includes("--status")) return showStatus(base);
   if (args.includes("--donate")) return showDonate(base);
   const address = args.find((a) => !a.startsWith("-"))?.trim();
