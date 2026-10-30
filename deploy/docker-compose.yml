@@ -6,6 +6,7 @@ services:
     restart: unless-stopped
     environment:
       GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET}
       DRIP_ZAT: ${DRIP_ZAT:-10000000}
       DAILY_CAP_ZAT: ${DAILY_CAP_ZAT:-500000000}
     volumes: ["./data:/data"]

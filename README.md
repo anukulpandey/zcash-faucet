@@ -17,7 +17,7 @@
 npx zcash-faucet utest1your_testnet_address...
 ```
 
-One command. Sign in with GitHub once, and TAZ arrives at your **unified, Sapling or transparent** testnet address.
+One command. Approve a GitHub login, and TAZ arrives at your **unified, Sapling or transparent** testnet address.
 
 ---
 
@@ -45,7 +45,6 @@ One command. Sign in with GitHub once, and TAZ arrives at your **unified, Saplin
 npx zcash-faucet <testnet-address>    # request TAZ
 npx zcash-faucet --status             # health, balance, drip size, recent drips
 npx zcash-faucet --donate             # where to send leftover TAZ
-npx zcash-faucet --logout             # forget the saved GitHub login
 ```
 
 | Option | What it does |
@@ -73,7 +72,7 @@ Most Zcash faucets died from bots draining them. This one is built so that doesn
 ```
   npx zcash-faucet utest1…
           │
-          │ 1. GitHub device login (token cached in ~/.config/zcash-faucet)
+          │ 1. GitHub device login (no scopes, never saved to disk)
           ▼
   ┌──────────────────────┐   POST /api/claim     ┌───────────────────────────┐
   │  CLI (this package)  │ ────────────────────▶ │  faucet server (Node)     │
@@ -112,19 +111,20 @@ Don't want to depend on anyone's faucet, including this one? Run the same server
 ```bash
 # on any Linux box with Docker and a public IP
 git clone https://github.com/anukulpandey/zcash-faucet && cd zcash-faucet/deploy
-DOMAIN=$(curl -s ifconfig.me).sslip.io GITHUB_CLIENT_ID=<your OAuth app id> docker compose up -d
+DOMAIN=$(curl -s ifconfig.me).sslip.io GITHUB_CLIENT_ID=<oauth app id> GITHUB_CLIENT_SECRET=<oauth app secret> docker compose up -d
 docker compose logs faucet   # prints the faucet address: fund it with TAZ
 ```
 
-On Google Cloud's free tier, one command creates the VM, static IP and firewall: `PROJECT=<id> GITHUB_CLIENT_ID=<id> sh deploy/gcp.sh`
+On Google Cloud's free tier, one command creates the VM, static IP and firewall: `PROJECT=<id> GITHUB_CLIENT_ID=<id> GITHUB_CLIENT_SECRET=<secret> sh deploy/gcp.sh`
 
-1. Create a GitHub OAuth App (Settings → Developer settings → OAuth Apps) and **tick "Enable Device Flow"**. Only the Client ID is needed.
+1. Create a GitHub OAuth App (Settings → Developer settings → OAuth Apps) and **tick "Enable Device Flow"**. You need its Client ID and a client secret.
 2. Caddy gets a TLS certificate automatically. `sslip.io` gives you a free hostname for your IP.
 3. **Back up the seed:** `docker compose exec faucet zcash-devtool wallet -w /data/wallet display-mnemonic --enable -i /data/identity.txt`
 
 | Env var | Default | Meaning |
 | --- | --- | --- |
 | `GITHUB_CLIENT_ID` | (required) | OAuth app for device login |
+| `GITHUB_CLIENT_SECRET` | (required) | Lets the server verify and revoke each login token |
 | `DRIP_ZAT` | `10000000` | Payout per claim (0.1 TAZ) |
 | `DAILY_CAP_ZAT` | `500000000` | Max paid out per 24h (5 TAZ) |
 | `COOLDOWN_HOURS` | `24` | Per account and per address |
@@ -140,6 +140,18 @@ node bin/zcash-faucet.js --help
 ```
 
 Publishing: `npm login` once, then `npm version patch && npm publish && git push --follow-tags`.
+
+## 🔒 Security & privacy
+
+GitHub login is only used to stop bots from draining the faucet. Here is exactly what happens:
+
+1. The CLI runs GitHub's [device flow](https://docs.github.com/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps#device-flow) for **the faucet's own OAuth app**, requesting **no scopes**. A no-scope token can only read public profile data: no repos, no email, no private anything. GitHub shows you this on the approval screen.
+2. The CLI **never reads any existing credential** (not `gh`, git or your browser), and **never writes the token to disk**. It lives in memory for one request. (v1.0.0 cached it; v1.1.0+ deletes that old file on every run.)
+3. The server first asks GitHub whether the token belongs to this faucet's app and carries no scopes. **Any other token is refused without being used.**
+4. It reads your public user ID and account creation date (`GET /user`), then **immediately revokes the token** through GitHub's API, so it can never be reused, even by whoever runs the server.
+5. Only your numeric GitHub ID and the claim time are stored, for the 24h cooldown.
+
+The whole flow is about 40 lines: [`githubLogin` in the CLI](bin/zcash-faucet.js) and [`githubUser` / `revoke` on the server](server/server.js), with a test in [test/github-auth.test.js](test/github-auth.test.js). You can also revoke the app any time at github.com/settings/applications. Found a problem? Please open an issue.
 
 ## ⚠️ Testnet only
 

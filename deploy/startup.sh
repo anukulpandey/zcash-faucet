@@ -10,5 +10,6 @@ curl -fsSLo docker-compose.yml https://raw.githubusercontent.com/anukulpandey/zc
 cat > .env <<ENV
 DOMAIN=$(md DOMAIN)
 GITHUB_CLIENT_ID=$(md GITHUB_CLIENT_ID)
+GITHUB_CLIENT_SECRET=$(md GITHUB_CLIENT_SECRET)
 ENV
 docker compose pull && docker compose up -d
