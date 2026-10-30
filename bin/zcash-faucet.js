@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
-const DEFAULT_FAUCET = "https://faucet.zcash.anukul.dev"; // set at deploy time; override with --faucet / ZCASH_FAUCET_URL
+const DEFAULT_FAUCET = "https://zcash-faucet.onrender.com"; // override with --faucet / ZCASH_FAUCET_URL
 const { version } = JSON.parse(readFileSync(new URL("../package.json", import.meta.url)));
 const TOKEN_FILE = join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "zcash-faucet", "github-token");
 
