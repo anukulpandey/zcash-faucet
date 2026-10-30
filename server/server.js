@@ -15,8 +15,8 @@ const C = {
   bin: env("WALLET_BIN", "zcash-devtool"),
   network: env("NETWORK", "test"), // test | regtest
   lwd: env("LWD_SERVER", "zecrocks"), // zecrocks, or host:port for regtest
-  dripZat: +env("DRIP_ZAT", 1_000_000), // 0.01 TAZ
-  dailyCapZat: +env("DAILY_CAP_ZAT", 100_000_000), // 1 TAZ/day across everyone
+  dripZat: +env("DRIP_ZAT", 10_000_000), // 0.1 TAZ
+  dailyCapZat: +env("DAILY_CAP_ZAT", 500_000_000), // 5 TAZ/day across everyone
   cooldownS: +env("COOLDOWN_HOURS", 24) * 3600,
   auth: env("AUTH", "github"), // github | none (none = local regtest only)
   ghClientId: env("GITHUB_CLIENT_ID", ""),
