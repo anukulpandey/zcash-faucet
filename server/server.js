@@ -166,6 +166,7 @@ function status() {
   const healthy = state.lastSyncOk && now() - state.lastSyncOk < C.syncEveryS * 5;
   return {
     ok: true,
+    version: "1.1.0", // bump with package.json; shows which server build is live
     healthy: !!healthy,
     network: C.network === "test" ? "testnet" : C.network,
     dripTaz: C.dripZat / 1e8,
