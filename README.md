@@ -130,7 +130,7 @@ On Google Cloud's free tier, one command creates the VM, static IP and firewall:
 
 1. Create a GitHub OAuth App (Settings → Developer settings → OAuth Apps) and **tick "Enable Device Flow"**. Only the Client ID is needed.
 2. Caddy gets a TLS certificate automatically. `sslip.io` gives you a free hostname for your IP.
-3. **Back up the seed:** `docker compose exec faucet zcash-devtool wallet -w /data/wallet display-mnemonic -i /data/identity.txt`
+3. **Back up the seed:** `docker compose exec faucet zcash-devtool wallet -w /data/wallet display-mnemonic --enable -i /data/identity.txt`
 
 | Env var | Default | Meaning |
 | --- | --- | --- |

@@ -30,6 +30,8 @@ const dbFile = join(C.data, "claims.json");
 mkdirSync(C.data, { recursive: true });
 
 // --- state: {byGithub:{id:ts}, byAddress:{addr:ts}, drips:[{ts,txid,zat}]} ---
+// ponytail: on an ephemeral disk (Render free) cooldowns reset on restart; rebuild them from the
+// wallet's sent txs (OVK-decrypted memos/addresses) if restarts ever become an abuse vector.
 const db = existsSync(dbFile) ? JSON.parse(readFileSync(dbFile, "utf8")) : { byGithub: {}, byAddress: {}, drips: [] };
 const save = () => { writeFileSync(dbFile + ".tmp", JSON.stringify(db)); renameSync(dbFile + ".tmp", dbFile); };
 const now = () => Math.floor(Date.now() / 1000);
@@ -50,8 +52,15 @@ const wallet = (args, input) => {
 const lwd = ["-s", C.lwd];
 
 async function boot() {
-  if (!existsSync(join(walletDir, "data.sqlite"))) {
-    console.log("No wallet yet, creating one. Back up the seed: zcash-devtool wallet -w", walletDir, "display-mnemonic -i", identity);
+  if (existsSync(join(walletDir, "data.sqlite"))) {
+    // existing wallet on a persistent disk
+  } else if (process.env.WALLET_SEED) {
+    // Hosts with ephemeral disks (Render free): restore the same wallet every boot.
+    console.log("Restoring wallet from WALLET_SEED");
+    const birthday = process.env.WALLET_BIRTHDAY ? ["--birthday", process.env.WALLET_BIRTHDAY] : [];
+    await wallet(["restore-mnemonic", "--name", "faucet", "-i", identity, "-n", C.network, ...birthday, ...lwd], process.env.WALLET_SEED.trim() + "\n");
+  } else {
+    console.log("No wallet yet, creating one. Back up the seed: zcash-devtool wallet -w", walletDir, "display-mnemonic --enable -i", identity);
     await wallet(["init", "--name", "faucet", "-i", identity, "-n", C.network, ...lwd]);
   }
   state.address = (await wallet(["list-addresses"])).match(/Default Address: (\S+)/)?.[1] ?? null;
