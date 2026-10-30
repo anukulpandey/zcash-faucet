@@ -11,11 +11,13 @@ jobs:
       - env: { GH_TOKEN: "${{ github.token }}", URL: "${{ vars.FAUCET_URL }}" }
         run: |
           [ -n "$URL" ] || { echo "FAUCET_URL repo variable not set yet"; exit 0; }
-          s=$(curl -fsS -m 20 "$URL/api/status" || echo '{}')
+          # Render free cold-starts take ~2 min (boot + wallet restore), so wait and retry before calling it down.
+          for i in 1 2 3; do s=$(curl -fsS -m 120 "$URL/api/status" || echo '{}'); [ "$(echo "$s" | jq -r .healthy)" = true ] && break; sleep 30; done
           echo "$s"
           if [ "$(echo "$s" | jq -r .healthy)" = true ] && [ "$(echo "$s" | jq -r '.spendableTaz > .dripTaz')" = true ]; then exit 0; fi
           open=$(gh issue list -R "$GITHUB_REPOSITORY" -l outage -s open --json number -q '.[0].number')
-          msg="Faucet unhealthy at $(date -u +%FT%TZ): \`$s\`"
-          if [ -n "$open" ]; then gh issue comment "$open" -R "$GITHUB_REPOSITORY" -b "$msg"
-          else gh label create outage -R "$GITHUB_REPOSITORY" -c d73a4a 2>/dev/null; gh issue create -R "$GITHUB_REPOSITORY" -l outage -t "Faucet is down or dry" -b "$msg"; fi
+          # One issue per outage; close it by hand once fixed.
+          [ -n "$open" ] && exit 1
+          gh label create outage -R "$GITHUB_REPOSITORY" -c d73a4a 2>/dev/null || true
+          gh issue create -R "$GITHUB_REPOSITORY" -l outage -t "Faucet is down or dry" -b "Faucet unhealthy at $(date -u +%FT%TZ): \`$s\`"
           exit 1
