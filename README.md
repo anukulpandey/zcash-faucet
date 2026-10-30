@@ -31,7 +31,7 @@ One command. Sign in with GitHub once, and TAZ arrives at your **unified, Saplin
 
   ✔ Signed in with GitHub
 
-  ⓩ  0.01 TAZ on its way to utest17rnhex9h…2dd5rk
+  ⓩ  0.1 TAZ on its way to utest17rnhex9h…2dd5rk
 
   txid      ab12cd34…
   explorer  https://testnet.zcashexplorer.app/transactions/ab12cd34…
@@ -64,7 +64,7 @@ Most Zcash faucets died from bots draining them. This one is built so that doesn
 | --- | --- |
 | Bots drain the wallet | **GitHub login** (device flow, no password ever touches the CLI). One claim per GitHub account **and** per address every 24h. Accounts younger than 30 days are refused. |
 | Per-IP limits block whole classrooms | **No IP limits.** 40 students on one campus Wi-Fi can all claim. |
-| Big payouts empty it fast | Small drips (0.01 TAZ) and a global daily cap. |
+| Big payouts empty it fast | Modest drips (0.1 TAZ) and a global daily cap. |
 | Nobody notices when it breaks | Public [status page](#-status--donations) plus a GitHub Actions monitor every 5 minutes that opens an issue on outage or low balance. |
 | It runs dry | `npx zcash-faucet --donate` prints the address to send leftovers back to. |
 
@@ -125,8 +125,8 @@ On Google Cloud's free tier, one command creates the VM, static IP and firewall:
 | Env var | Default | Meaning |
 | --- | --- | --- |
 | `GITHUB_CLIENT_ID` | (required) | OAuth app for device login |
-| `DRIP_ZAT` | `1000000` | Payout per claim (0.01 TAZ) |
-| `DAILY_CAP_ZAT` | `100000000` | Max paid out per 24h (1 TAZ) |
+| `DRIP_ZAT` | `10000000` | Payout per claim (0.1 TAZ) |
+| `DAILY_CAP_ZAT` | `500000000` | Max paid out per 24h (5 TAZ) |
 | `COOLDOWN_HOURS` | `24` | Per account and per address |
 | `MIN_GITHUB_AGE_DAYS` | `30` | Reject newer GitHub accounts |
 | `NETWORK` / `LWD_SERVER` | `test` / `zecrocks` | `regtest` + `host:port` for local |
