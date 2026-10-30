@@ -163,22 +163,85 @@ function status() {
   };
 }
 
-const page = (s) => `<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
+const BANNER = String.raw`    .-~~~~~~-.
+  .'  ______  '.
+ /   |___  /    \    ███████╗ ██████╗ █████╗ ███████╗██╗  ██╗
+|  ===  / /===   |   ╚══███╔╝██╔════╝██╔══██╗██╔════╝██║  ██║
+|      / /       |     ███╔╝ ██║     ███████║███████╗███████║
+|  ===/ /____=== |    ███╔╝  ██║     ██╔══██║╚════██║██╔══██║
+ \   /______|   /    ███████╗╚██████╗██║  ██║███████║██║  ██║
+  '.          .'     ╚══════╝ ╚═════╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝
+    '-.____.-'         t e s t n e t   ·   f a u c e t`;
+
+// Status page: a fake terminal session. Values render server-side and refresh every 30s from /api/status.
+const page = (s) => `<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
 <title>Zcash Testnet Faucet</title>
-<style>body{font:15px/1.6 ui-monospace,Menlo,monospace;background:#0d0d0d;color:#e8e8e8;max-width:720px;margin:40px auto;padding:0 16px}
-h1{color:#f4b728}code,.a{background:#1c1c1c;padding:2px 6px;border-radius:4px;word-break:break-all}.ok{color:#5fd068}.bad{color:#ff6b6b}td{padding:2px 16px 2px 0}a{color:#f4b728}</style>
-<h1>ⓩ Zcash Testnet Faucet</h1>
-<p>Get TAZ from your terminal: <code>npx zcash-faucet &lt;your-testnet-address&gt;</code></p>
-<table>
-<tr><td>status</td><td class=${s.healthy ? "ok>● online" : "bad>● degraded"}</td></tr>
-<tr><td>network</td><td>${s.network}</td></tr>
-<tr><td>balance</td><td>${s.balanceTaz ?? "syncing…"} TAZ (${s.spendableTaz} spendable)</td></tr>
-<tr><td>drip</td><td>${s.dripTaz} TAZ / ${s.cooldownSeconds / 3600}h per GitHub account and address</td></tr>
-<tr><td>drips</td><td>${s.drips.last24h} last 24h · ${s.drips.allTime} all-time</td></tr>
-<tr><td>height</td><td>${s.height ?? "?"}</td></tr>
-</table>
-<h3>Donate TAZ back</h3><p class=a>${s.donationAddress ?? "…"}</p>
-<p><a href="/api/status">/api/status</a> · <a href="https://github.com/anukulpandey/zcash-faucet">source</a></p>`;
+<meta name=description content="Zcash testnet coins (TAZ) from your terminal: npx zcash-faucet <address>">
+<link rel=icon href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>ⓩ</text></svg>">
+<style>
+:root{--bg:#07080a;--win:#0e1013;--bar:#16191e;--fg:#d7dae0;--dim:#6b7280;--gold:#f4b728;--green:#4ade80;--red:#f87171;--cyan:#67e8f9;--line:#23272e}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;background:radial-gradient(ellipse at top,#14110a 0%,var(--bg) 60%);color:var(--fg);font:14px/1.55 "JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;padding:32px 16px}
+.win{max-width:860px;margin:0 auto;background:var(--win);border:1px solid var(--line);border-radius:10px;box-shadow:0 30px 80px #000a,0 0 0 1px #f4b72810,0 0 60px #f4b72812;overflow:hidden}
+.bar{display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--bar);border-bottom:1px solid var(--line);color:var(--dim);font-size:12px}
+.bar i{width:12px;height:12px;border-radius:50%;display:inline-block}.bar span{margin:0 auto;padding-right:52px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.body{padding:20px 22px 26px;position:relative}
+.body::after{content:"";pointer-events:none;position:absolute;inset:0;background:repeating-linear-gradient(0deg,#ffffff05 0 1px,transparent 1px 3px)}
+pre{margin:0;font:inherit;white-space:pre}
+.banner{color:var(--gold);font-family:Menlo,"DejaVu Sans Mono",Consolas,ui-monospace,monospace;font-size:min(13px,2.35vw);line-height:1;letter-spacing:0;text-shadow:0 0 12px #f4b72855;overflow-x:auto;padding-bottom:4px}
+.tag{color:var(--dim);margin:10px 0 18px}
+.p{color:var(--green)}.p::before{content:"➜ ";color:var(--green)}.c{color:var(--fg)}.cm{color:var(--dim)}
+.row{display:grid;grid-template-columns:110px 1fr;gap:12px;padding-left:16px}.k{color:var(--dim)}
+.ok{color:var(--green)}.bad{color:var(--red)}.gold{color:var(--gold)}.cy{color:var(--cyan)}
+.blk{margin:0 0 18px}
+.addr{color:var(--cyan);word-break:break-all;padding-left:16px;display:block}
+button{font:inherit;font-size:12px;background:transparent;color:var(--gold);border:1px solid #f4b72866;border-radius:5px;padding:1px 8px;margin-left:10px;cursor:pointer}
+button:hover{background:#f4b72818}button:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+a{color:var(--gold);text-decoration:none;border-bottom:1px dotted #f4b72888}a:hover{border-bottom-style:solid}
+.cur{display:inline-block;width:8px;height:16px;background:var(--fg);vertical-align:text-bottom;animation:b 1.1s steps(1) infinite}
+@keyframes b{50%{opacity:0}}
+@media (prefers-reduced-motion:reduce){.cur{animation:none}}
+@media (max-width:560px){body{padding:16px 10px;font-size:12.5px}.body{padding:16px 14px 20px}.row{grid-template-columns:84px 1fr;padding-left:8px}.addr{padding-left:8px}}
+</style>
+<div class=win role=main>
+<div class=bar><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i><span>zcash-faucet — testnet — 80×24</span></div>
+<div class=body>
+<pre class=banner aria-label="Zcash testnet faucet">${BANNER}</pre>
+<div class=tag>Testnet TAZ, straight to your terminal. One command, sign in with GitHub once.</div>
+
+<div class=blk><span class=p></span><span class=c>npx zcash-faucet &lt;your-testnet-address&gt;</span><button data-copy="npx zcash-faucet ">copy</button>
+<div class=cm style="padding-left:16px"># utest1… · ztestsapling1… · tm…   ${s.dripTaz} TAZ per GitHub account &amp; address every ${s.cooldownSeconds / 3600}h</div></div>
+
+<div class=blk><span class=p></span><span class=c>npx zcash-faucet --status</span>
+<div class=row><span class=k>health</span><span id=health class=${s.healthy ? "ok>● online" : "bad>● degraded"}</span></div>
+<div class=row><span class=k>network</span><span>${s.network}</span></div>
+<div class=row><span class=k>reserve</span><span><span id=meter class=gold>${meter(s)}</span> <span id=bal>${s.balanceTaz ?? "syncing…"}</span> TAZ</span></div>
+<div class=row><span class=k>claims left</span><span id=left>${Math.floor(s.spendableTaz / s.dripTaz)}</span></div>
+<div class=row><span class=k>drips</span><span><span id=d24>${s.drips.last24h}</span> last 24h · <span id=dall>${s.drips.allTime}</span> all-time</span></div>
+<div class=row><span class=k>height</span><span id=h>${s.height ?? "?"}</span></div>
+</div>
+
+<div class=blk><span class=p></span><span class=c>npx zcash-faucet --donate</span><button data-copy="${s.donationAddress ?? ""}">copy address</button>
+<div class=cm style="padding-left:16px"># done testing? send leftover TAZ back so the next dev gets some</div>
+<span class=addr>${s.donationAddress ?? "…"}</span></div>
+
+<div class=blk><span class=p></span><span class=c>cat HOW_IT_WORKS</span>
+<pre class=cm style="padding-left:16px;white-space:pre-wrap">CLI ──GitHub device login──▶ faucet API ──zcash-devtool──▶ lightwalletd ──▶ testnet
+no captchas · no IP limits (campus Wi-Fi works) · small drips · daily cap</pre></div>
+
+<div class=blk><span class=p></span><span class=c>open</span> <a href="https://github.com/anukulpandey/zcash-faucet">github</a> · <a href="https://www.npmjs.com/package/zcash-faucet">npm</a> · <a href="/api/status">/api/status</a></div>
+<span class=p></span><span class=cur></span>
+</div></div>
+<script>
+document.addEventListener("click",e=>{const b=e.target.closest("[data-copy]");if(!b)return;navigator.clipboard.writeText(b.dataset.copy).then(()=>{const t=b.textContent;b.textContent="copied ✔";setTimeout(()=>b.textContent=t,1200)})});
+const meter=${meter.toString()};
+setInterval(async()=>{try{const s=await (await fetch("/api/status")).json();const $=id=>document.getElementById(id);
+$("health").className=s.healthy?"ok":"bad";$("health").textContent=s.healthy?"● online":"● degraded";
+$("meter").textContent=meter(s);$("bal").textContent=s.balanceTaz??"syncing…";$("left").textContent=Math.floor(s.spendableTaz/s.dripTaz);
+$("d24").textContent=s.drips.last24h;$("dall").textContent=s.drips.allTime;$("h").textContent=s.height??"?"}catch{}},30000);
+</script></html>`;
+// Reserve bar: full at 100 drips' worth.
+function meter(s) { const n = Math.max(0, Math.min(20, Math.round((s.spendableTaz / (s.dripTaz * 100)) * 20))); return "[" + "█".repeat(n) + "░".repeat(20 - n) + "]"; }
 
 const send = (res, code, body, type = "application/json") => {
   res.writeHead(code, { "content-type": type, "access-control-allow-origin": "*" });
