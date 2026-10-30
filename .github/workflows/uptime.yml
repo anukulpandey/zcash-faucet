@@ -10,6 +10,7 @@ jobs:
     steps:
       - env: { GH_TOKEN: "${{ github.token }}", URL: "${{ vars.FAUCET_URL }}" }
         run: |
+          [ -n "$URL" ] || { echo "FAUCET_URL repo variable not set yet"; exit 0; }
           s=$(curl -fsS -m 20 "$URL/api/status" || echo '{}')
           echo "$s"
           if [ "$(echo "$s" | jq -r .healthy)" = true ] && [ "$(echo "$s" | jq -r '.spendableTaz > .dripTaz')" = true ]; then exit 0; fi
