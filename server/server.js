@@ -313,7 +313,7 @@ $("d24").textContent=s.drips.last24h;$("dall").textContent=s.drips.allTime;$("h"
 upd();setInterval(upd,30000);
 </script></html>`;
 // Reserve bar: full at 100 drips' worth.
-function meter(s) { const n = Math.max(0, Math.min(20, Math.round((s.spendableTaz / (s.dripTaz * 100)) * 20))); return "[" + "█".repeat(n) + "░".repeat(20 - n) + "]"; }
+function meter(s) { const n = Math.max(0, Math.min(20, Math.round(((s.spendableTaz || 0) / (s.dripTaz * 100)) * 20))); return "[" + "█".repeat(n) + "░".repeat(20 - n) + "]"; }
 
 const send = (res, code, body, type = "application/json") => {
   res.writeHead(code, { "content-type": type, "access-control-allow-origin": "*" });

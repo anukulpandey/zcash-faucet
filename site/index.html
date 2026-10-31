@@ -47,7 +47,7 @@ a{color:var(--gold);text-decoration:none;border-bottom:1px dotted #f4b72888}a:ho
 <div class=blk><span class=p></span><span class=c>npx zcash-faucet --status</span>
 <div class=row><span class=k>health</span><span id=health class=k>● connecting…</span></div>
 <div class=row><span class=k>network</span><span>testnet</span></div>
-<div class=row><span class=k>reserve</span><span><span id=meter class=gold>[]</span> <span id=bal>…</span> TAZ</span></div>
+<div class=row><span class=k>reserve</span><span><span id=meter class=gold>[░░░░░░░░░░░░░░░░░░░░]</span> <span id=bal>…</span> TAZ</span></div>
 <div class=row><span class=k>claims left</span><span id=left>…</span></div>
 <div class=row><span class=k>drips</span><span><span id=d24>…</span> last 24h · <span id=dall>…</span> all-time</span></div>
 <div class=row><span class=k>height</span><span id=h>…</span></div>
@@ -66,7 +66,7 @@ no account · no captchas · no IP limits (campus Wi-Fi works) · daily cap</pre
 </div></div>
 <script>
 document.addEventListener("click",e=>{const b=e.target.closest("[data-copy]");if(!b)return;navigator.clipboard.writeText(b.dataset.copy).then(()=>{const t=b.textContent;b.textContent="copied ✔";setTimeout(()=>b.textContent=t,1200)})});
-const meter=function meter(s) { const n = Math.max(0, Math.min(20, Math.round((s.spendableTaz / (s.dripTaz * 100)) * 20))); return "[" + "█".repeat(n) + "░".repeat(20 - n) + "]"; };
+const meter=function meter(s) { const n = Math.max(0, Math.min(20, Math.round(((s.spendableTaz || 0) / (s.dripTaz * 100)) * 20))); return "[" + "█".repeat(n) + "░".repeat(20 - n) + "]"; };
 const upd=async()=>{try{const s=await (await fetch("/api/status")).json();const $=id=>document.getElementById(id);
 if(s.donationAddress){$("addr").textContent=s.donationAddress;$("dcopy").dataset.copy=s.donationAddress}
 $("health").className=s.healthy?"ok":"bad";$("health").textContent=s.healthy?"● online":"● degraded";
