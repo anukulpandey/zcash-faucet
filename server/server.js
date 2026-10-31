@@ -193,7 +193,7 @@ async function claim(req, body) {
   db.byAddress[address] = now();
   if (who !== "anon") db.byGithub[who] = now();
   save();
-  try {
+  const pay = async () => { try {
     const out = await wallet(["send", "-i", identity, "--address", address, "--value", String(C.dripZat), "--memo", "Thanks for building on Zcash! (zcash-faucet)", "--target-note-count", "10", ...lwd], "y\n");
     const txid = out.match(/^[0-9a-f]{64}$/m)?.[0];
     db.drips.push({ ts: now(), txid, zat: C.dripZat });
@@ -207,14 +207,22 @@ async function claim(req, body) {
     save();
     console.error("send failed:", e.message);
     return [502, { ok: false, error: `Send failed, your cooldown was not used: ${e.message}`, retryAfterSeconds: 120 }];
-  }
+  } };
+  if (!body.async) return pay(); // older CLIs wait on one request
+  // Proxies (Vercel) cut long requests, and a shielded send can take a minute on a small CPU:
+  // answer now with a job id; the CLI polls GET /api/claim/<id>.
+  const id = crypto.randomBytes(8).toString("hex");
+  jobs.set(id, null);
+  pay().then((r) => { jobs.set(id, r); setTimeout(() => jobs.delete(id), 3600_000).unref(); });
+  return [202, { ok: true, pending: true, id }];
 }
+const jobs = new Map(); // claim id -> null while sending, then [code, body]
 
 function status() {
   const healthy = state.lastSyncOk && now() - state.lastSyncOk < C.syncEveryS * 5;
   return {
     ok: true,
-    version: "1.2.0", // bump with package.json; shows which server build is live
+    version: "1.2.1", // bump with package.json; shows which server build is live
     healthy: !!healthy,
     network: C.network === "test" ? "testnet" : C.network,
     dripTaz: C.dripZat / 1e8,
@@ -328,6 +336,12 @@ const server = http.createServer(async (req, res) => {
       const address = new URL(req.url, "http://x").searchParams.get("address")?.trim() ?? "";
       const refused = precheck(address);
       return refused ? send(res, ...refused) : send(res, 200, { ok: true, ...challenge(address) });
+    }
+    if (req.method === "GET" && req.url.startsWith("/api/claim/")) {
+      const id = req.url.slice("/api/claim/".length);
+      if (!jobs.has(id)) return send(res, 404, { ok: false, error: "Unknown claim (the faucet may have restarted). Check your wallet, then try again." });
+      const r = jobs.get(id);
+      return r ? send(res, ...r) : send(res, 200, { ok: true, pending: true });
     }
     if (req.method === "POST" && req.url === "/api/claim") {
       let raw = "";
