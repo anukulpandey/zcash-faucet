@@ -57,11 +57,14 @@ a{color:var(--gold);text-decoration:none;border-bottom:1px dotted #f4b72888}a:ho
 <div class=cm style="padding-left:16px"># done testing? send leftover TAZ back so the next dev gets some</div>
 <span class=addr id=addr>…</span></div>
 
+<div class=blk><span class=p></span><span class=c>cat USAGE</span> <span class=cm># claims per day, read from the chain</span>
+<pre id=chart class=gold style="padding-left:16px;margin-top:4px">…</pre></div>
+
 <div class=blk><span class=p></span><span class=c>cat HOW_IT_WORKS</span>
 <pre class=cm style="padding-left:16px;white-space:pre-wrap">CLI ──Argon2id proof-of-work──▶ faucet API ──zcash-devtool──▶ lightwalletd ──▶ testnet
 no account · no captchas · no IP limits (campus Wi-Fi works) · daily cap</pre></div>
 
-<div class=blk><span class=p></span><span class=c>open</span> <a href="https://github.com/anukulpandey/zcash-faucet">github</a> · <a href="https://www.npmjs.com/package/zcash-faucet">npm</a> · <a href="/api/status">/api/status</a></div>
+<div class=blk><span class=p></span><span class=c>open</span> <a href="https://github.com/anukulpandey/zcash-faucet">github</a> · <a href="https://www.npmjs.com/package/zcash-faucet">npm</a> · <a href="/api/status">/api/status</a> · <a href="/api/stats">/api/stats</a></div>
 <span class=p></span><span class=cur></span>
 </div></div>
 <script>
@@ -72,5 +75,11 @@ if(s.donationAddress){$("addr").textContent=s.donationAddress;$("dcopy").dataset
 $("health").className=s.healthy?"ok":"bad";$("health").textContent=s.healthy?"● online":"● degraded";
 $("meter").textContent=meter(s);$("bal").textContent=s.balanceTaz??"syncing…";$("left").textContent=Math.floor(s.spendableTaz/s.dripTaz);
 $("d24").textContent=s.drips.last24h;$("dall").textContent=s.drips.allTime;$("h").textContent=s.height??"?"}catch{}};
-upd();setInterval(upd,30000);
+const chart=async()=>{try{const s=await (await fetch("/api/stats")).json();const by=Object.fromEntries(s.byDay.map(d=>[d.day,d.drips]));
+const days=[...Array(14)].map((_,i)=>new Date(Date.now()-(13-i)*864e5).toISOString().slice(0,10));const max=Math.max(1,...days.map(d=>by[d]||0));
+document.getElementById("chart").textContent=days.map(d=>d.slice(5)+" "+"█".repeat(Math.round((by[d]||0)/max*30))+" "+(by[d]||0)).join("
+")+"
+
+"+s.drips+" claims · "+s.tazSent+" TAZ sent · "+s.donations+" donations ("+s.tazDonated+" TAZ)"}catch{}};
+upd();chart();setInterval(upd,30000);setInterval(chart,300000);
 </script></html>
