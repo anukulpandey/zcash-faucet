@@ -23,6 +23,8 @@ One command, **no account**. Your machine mines a short proof-of-work, and TAZ a
 
 ## ✨ What it looks like
 
+![zcash-faucet demo: a real claim](docs/demo.gif)
+
 ```
   ✔ Proof-of-work done (3,912 hashes in 13.8s, no account needed)
 
