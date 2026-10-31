@@ -9,6 +9,7 @@ import crypto from "node:crypto";
 import { execFile } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 
 const env = (k, d) => process.env[k] ?? d;
 const C = {
@@ -79,6 +80,7 @@ async function sync() {
     const b = JSON.parse((await wallet(["balance", "--json"])).trim().split("\n").pop());
     state.balance = b;
     state.height = b.chain_tip_height;
+    state.history = readHistory();
     state.lastSyncOk = now();
     state.lastSyncError = null;
   } catch (e) {
@@ -86,6 +88,37 @@ async function sync() {
     console.error("sync failed:", e.message);
   }
 }
+// Usage stats come from the wallet's own transaction history, which a restore from the seed rebuilds
+// from the chain, so they survive restarts and store nothing about who claimed.
+function readHistory() {
+  const file = join(walletDir, "data.sqlite");
+  if (!existsSync(file)) return null; // fake wallet in tests
+  const wdb = new DatabaseSync(file, { readOnly: true });
+  try {
+    return wdb.prepare("SELECT block_time AS t, account_balance_delta AS d FROM v_transactions WHERE mined_height IS NOT NULL ORDER BY block_time").all();
+  } finally {
+    wdb.close();
+  }
+}
+
+// A drip moves at least half a drip out; self-sends only cost the fee, donations are positive.
+export function summarize(rows, dripZat, nowS = now()) {
+  const drips = rows.filter((r) => r.d <= -dripZat / 2);
+  const donations = rows.filter((r) => r.d > 0);
+  const byDay = {};
+  for (const r of drips) { const day = new Date(r.t * 1000).toISOString().slice(0, 10); byDay[day] = (byDay[day] ?? 0) + 1; }
+  return {
+    drips: drips.length,
+    dripsLast24h: drips.filter((r) => r.t > nowS - 86400).length,
+    tazSent: Math.round(drips.reduce((a, r) => a - r.d, 0)) / 1e8,
+    donations: donations.length,
+    tazDonated: donations.reduce((a, r) => a + r.d, 0) / 1e8,
+    firstDrip: drips[0] ? new Date(drips[0].t * 1000).toISOString() : null,
+    byDay: Object.entries(byDay).map(([day, n]) => ({ day, drips: n })),
+  };
+}
+const stats = () => (state.history ? summarize(state.history, C.dripZat) : null);
+
 // Sum every pool the wallet reports (orchard, sapling, transparent, ironwood, …) so a new pool can't hide funds.
 const spendable = () => Object.entries(state.balance ?? {}).reduce((sum, [k, v]) => (k.endsWith("_spendable") ? sum + v : sum), 0);
 
@@ -222,7 +255,7 @@ function status() {
   const healthy = state.lastSyncOk && now() - state.lastSyncOk < C.syncEveryS * 5;
   return {
     ok: true,
-    version: "1.2.1", // bump with package.json; shows which server build is live
+    version: "1.3.0", // bump with package.json; shows which server build is live
     healthy: !!healthy,
     network: C.network === "test" ? "testnet" : C.network,
     dripTaz: C.dripZat / 1e8,
@@ -236,7 +269,8 @@ function status() {
     lastSync: state.lastSyncOk,
     lastSyncError: state.lastSyncError,
     donationAddress: state.address,
-    drips: { last24h: db.drips.filter((d) => d.ts > now() - 86400).length, allTime: db.drips.length },
+    // From the chain when available (survives restarts); the local log is only a fallback.
+    drips: stats() ? { last24h: stats().dripsLast24h, allTime: stats().drips } : { last24h: db.drips.filter((d) => d.ts > now() - 86400).length, allTime: db.drips.length },
     uptimeSeconds: now() - state.started,
   };
 }
@@ -303,11 +337,14 @@ a{color:var(--gold);text-decoration:none;border-bottom:1px dotted #f4b72888}a:ho
 <div class=cm style="padding-left:16px"># done testing? send leftover TAZ back so the next dev gets some</div>
 <span class=addr id=addr>${s.donationAddress ?? "…"}</span></div>
 
+<div class=blk><span class=p></span><span class=c>cat USAGE</span> <span class=cm># claims per day, read from the chain</span>
+<pre id=chart class=gold style="padding-left:16px;margin-top:4px">…</pre></div>
+
 <div class=blk><span class=p></span><span class=c>cat HOW_IT_WORKS</span>
 <pre class=cm style="padding-left:16px;white-space:pre-wrap">CLI ──Argon2id proof-of-work──▶ faucet API ──zcash-devtool──▶ lightwalletd ──▶ testnet
 no account · no captchas · no IP limits (campus Wi-Fi works) · daily cap</pre></div>
 
-<div class=blk><span class=p></span><span class=c>open</span> <a href="https://github.com/anukulpandey/zcash-faucet">github</a> · <a href="https://www.npmjs.com/package/zcash-faucet">npm</a> · <a href="/api/status">/api/status</a></div>
+<div class=blk><span class=p></span><span class=c>open</span> <a href="https://github.com/anukulpandey/zcash-faucet">github</a> · <a href="https://www.npmjs.com/package/zcash-faucet">npm</a> · <a href="/api/status">/api/status</a> · <a href="/api/stats">/api/stats</a></div>
 <span class=p></span><span class=cur></span>
 </div></div>
 <script>
@@ -318,7 +355,10 @@ if(s.donationAddress){$("addr").textContent=s.donationAddress;$("dcopy").dataset
 $("health").className=s.healthy?"ok":"bad";$("health").textContent=s.healthy?"● online":"● degraded";
 $("meter").textContent=meter(s);$("bal").textContent=s.balanceTaz??"syncing…";$("left").textContent=Math.floor(s.spendableTaz/s.dripTaz);
 $("d24").textContent=s.drips.last24h;$("dall").textContent=s.drips.allTime;$("h").textContent=s.height??"?"}catch{}};
-upd();setInterval(upd,30000);
+const chart=async()=>{try{const s=await (await fetch("/api/stats")).json();const by=Object.fromEntries(s.byDay.map(d=>[d.day,d.drips]));
+const days=[...Array(14)].map((_,i)=>new Date(Date.now()-(13-i)*864e5).toISOString().slice(0,10));const max=Math.max(1,...days.map(d=>by[d]||0));
+document.getElementById("chart").textContent=days.map(d=>d.slice(5)+" "+"█".repeat(Math.round((by[d]||0)/max*30))+" "+(by[d]||0)).join("\n")+"\n\n"+s.drips+" claims · "+s.tazSent+" TAZ sent · "+s.donations+" donations ("+s.tazDonated+" TAZ)"}catch{}};
+upd();chart();setInterval(upd,30000);setInterval(chart,300000);
 </script></html>`;
 // Reserve bar: full at 100 drips' worth.
 function meter(s) { const n = Math.max(0, Math.min(20, Math.round(((s.spendableTaz || 0) / (s.dripTaz * 100)) * 20))); return "[" + "█".repeat(n) + "░".repeat(20 - n) + "]"; }
@@ -332,6 +372,7 @@ const server = http.createServer(async (req, res) => {
   try {
     if (req.method === "GET" && req.url === "/") return send(res, 200, page(status()), "text/html; charset=utf-8");
     if (req.method === "GET" && req.url === "/api/status") return send(res, 200, status());
+    if (req.method === "GET" && req.url === "/api/stats") return send(res, 200, { ok: true, source: stats() ? "chain" : "local", ...(stats() ?? summarize([], C.dripZat)) });
     if (req.method === "GET" && req.url.startsWith("/api/challenge")) {
       const address = new URL(req.url, "http://x").searchParams.get("address")?.trim() ?? "";
       const refused = precheck(address);
