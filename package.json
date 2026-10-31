@@ -11,7 +11,8 @@
   ],
   "scripts": {
     "test": "node --test",
-    "server": "node server/server.js"
+    "server": "node server/server.js",
+    "site": "node site/build.mjs"
   },
   "engines": {
     "node": ">=18"
