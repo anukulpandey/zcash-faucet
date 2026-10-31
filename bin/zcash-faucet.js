@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
-const DEFAULT_FAUCET = "https://zcash-faucet.onrender.com"; // override with --faucet / ZCASH_FAUCET_URL
+const DEFAULT_FAUCET = "https://zcash-faucet.vercel.app"; // Vercel front, forwards /api to the wallet server; override with --faucet / ZCASH_FAUCET_URL
 const { version } = JSON.parse(readFileSync(new URL("../package.json", import.meta.url)));
 // v1.0.0 cached the login token here; we no longer store it, and delete it if present.
 const OLD_TOKEN_FILE = join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "zcash-faucet", "github-token");

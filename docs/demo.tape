@@ -18,9 +18,9 @@ Set Theme "Catppuccin Mocha"
 Set WindowBar Colorful
 Set TypingSpeed 45ms
 
-# Off camera: quiet npm warnings, warm the npx cache, wake the Render server (cold start ~2 min).
+# Off camera: quiet npm warnings, warm the npx cache, wake the wallet server (cold start ~2 min).
 Hide
-Type "export npm_config_loglevel=error PS1='%F{green}❯%f ' && npx -y zcash-faucet --version >/dev/null && curl -s -o /dev/null -m 180 https://zcash-faucet.onrender.com/api/status && clear"
+Type "export npm_config_loglevel=error PS1='%F{green}❯%f ' && npx -y zcash-faucet --version >/dev/null && curl -s -o /dev/null -m 180 https://zcash-faucet.vercel.app/api/status && clear"
 Enter
 Wait@240s /❯$/
 Show
