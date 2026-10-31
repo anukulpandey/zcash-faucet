@@ -77,9 +77,6 @@ $("meter").textContent=meter(s);$("bal").textContent=s.balanceTaz??"syncing…";
 $("d24").textContent=s.drips.last24h;$("dall").textContent=s.drips.allTime;$("h").textContent=s.height??"?"}catch{}};
 const chart=async()=>{try{const s=await (await fetch("/api/stats")).json();const by=Object.fromEntries(s.byDay.map(d=>[d.day,d.drips]));
 const days=[...Array(14)].map((_,i)=>new Date(Date.now()-(13-i)*864e5).toISOString().slice(0,10));const max=Math.max(1,...days.map(d=>by[d]||0));
-document.getElementById("chart").textContent=days.map(d=>d.slice(5)+" "+"█".repeat(Math.round((by[d]||0)/max*30))+" "+(by[d]||0)).join("
-")+"
-
-"+s.drips+" claims · "+s.tazSent+" TAZ sent · "+s.donations+" donations ("+s.tazDonated+" TAZ)"}catch{}};
+document.getElementById("chart").textContent=days.map(d=>d.slice(5)+" "+"█".repeat(Math.round((by[d]||0)/max*30))+" "+(by[d]||0)).join("\n")+"\n\n"+s.drips+" claims · "+s.tazSent+" TAZ sent · "+s.donations+" donations ("+s.tazDonated+" TAZ)"}catch{}};
 upd();chart();setInterval(upd,30000);setInterval(chart,300000);
 </script></html>
