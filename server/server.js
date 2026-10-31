@@ -86,7 +86,8 @@ async function sync() {
     console.error("sync failed:", e.message);
   }
 }
-const spendable = () => (state.balance ? state.balance.orchard_spendable + state.balance.sapling_spendable + state.balance.transparent_spendable : 0);
+// Sum every pool the wallet reports (orchard, sapling, transparent, ironwood, …) so a new pool can't hide funds.
+const spendable = () => Object.entries(state.balance ?? {}).reduce((sum, [k, v]) => (k.endsWith("_spendable") ? sum + v : sum), 0);
 
 // --- claim rules ---
 export function checkAddress(addr, network = C.network) {
