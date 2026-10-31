@@ -5,7 +5,7 @@
 **Zcash testnet coins (TAZ), straight to your terminal.**
 
 [![npm](https://img.shields.io/npm/v/zcash-faucet?color=f4b728&label=npm)](https://www.npmjs.com/package/zcash-faucet)
-![node](https://img.shields.io/badge/node-%3E%3D18-339933)
+![node](https://img.shields.io/badge/node-%3E%3D24.7-339933)
 ![deps](https://img.shields.io/badge/dependencies-0-brightgreen)
 ![network](https://img.shields.io/badge/network-testnet%20only-f4b728)
 [![uptime](https://github.com/anukulpandey/zcash-faucet/actions/workflows/uptime.yml/badge.svg)](https://github.com/anukulpandey/zcash-faucet/actions/workflows/uptime.yml)
@@ -17,19 +17,14 @@
 npx zcash-faucet utest1your_testnet_address...
 ```
 
-One command. Approve a GitHub login, and TAZ arrives at your **unified, Sapling or transparent** testnet address.
+One command, **no account**. Your machine mines a short proof-of-work, and TAZ arrives at your **unified, Sapling or transparent** testnet address.
 
 ---
 
 ## ✨ What it looks like
 
 ```
-  Sign in with GitHub (one per day per account keeps bots out)
-
-  1. Open   https://github.com/login/device
-  2. Enter  ABCD-1234
-
-  ✔ Signed in with GitHub
+  ✔ Proof-of-work done (3,912 hashes in 13.8s, no account needed)
 
   ⓩ  0.1 TAZ on its way to utest17rnhex9h…2dd5rk
 
@@ -42,18 +37,22 @@ One command. Approve a GitHub login, and TAZ arrives at your **unified, Sapling 
 ## 🚀 Usage
 
 ```bash
-npx zcash-faucet <testnet-address>    # request TAZ
+npx zcash-faucet <testnet-address>    # request TAZ (mines ~10-60s, no account)
+npx zcash-faucet <address> --github   # skip mining: sign in with GitHub instead
 npx zcash-faucet --status             # health, balance, drip size, recent drips
 npx zcash-faucet --donate             # where to send leftover TAZ
 ```
 
 | Option | What it does |
 | --- | --- |
+| `--github` | Sign in with GitHub instead of mining. No permissions requested; the login is revoked right after the check |
 | `--faucet <url>` | Use another zcash-faucet server, such as your local regtest one (or set `ZCASH_FAUCET_URL`) |
 | `NO_COLOR=1` | Turn off colors |
 
 **Accepted addresses:** `utest1…` (unified), `ztestsapling1…` (Sapling), `tm…` (transparent), `textest1…` (TEX).
 Mainnet addresses are rejected before anything is sent.
+
+**Needs Node 24.7+** for proof-of-work (it uses Node's built-in Argon2id). On older Node, `--github` and `--status` still work.
 
 ## 🛡 Why this faucet stays up
 
@@ -61,7 +60,8 @@ Most Zcash faucets died from bots draining them. This one is built so that doesn
 
 | Problem | What zcash-faucet does |
 | --- | --- |
-| Bots drain the wallet | **GitHub login** (device flow, no password ever touches the CLI). One claim per GitHub account **and** per address every 24h. Accounts younger than 30 days are refused. |
+| Bots drain the wallet | **Argon2id proof-of-work**, no account needed. It's memory-hard (19 MiB per hash), so GPUs and bot farms gain little over a laptop. Each proof is signed for one address, pays once, and gets harder when claims spike. One claim per address every 24h. |
+| Identity shouldn't be required | No login by default. `--github` is an optional fast lane: no scopes, token revoked right after the check. |
 | Per-IP limits block whole classrooms | **No IP limits.** 40 students on one campus Wi-Fi can all claim. |
 | Big payouts empty it fast | Modest drips (0.1 TAZ) and a global daily cap. |
 | Nobody notices when it breaks | Public [status page](#-status--donations) plus a GitHub Actions monitor every 5 minutes that opens an issue on outage or low balance. |
@@ -72,11 +72,11 @@ Most Zcash faucets died from bots draining them. This one is built so that doesn
 ```
   npx zcash-faucet utest1…
           │
-          │ 1. GitHub device login (no scopes, never saved to disk)
+          │ 1. mine an Argon2id proof for a signed, single-use challenge
           ▼
   ┌──────────────────────┐   POST /api/claim     ┌───────────────────────────┐
   │  CLI (this package)  │ ────────────────────▶ │  faucet server (Node)     │
-  │  zero dependencies   │ ◀── txid ──────────── │  • verifies GitHub user   │
+  │  zero dependencies   │ ◀── txid ──────────── │  • verifies the proof     │
   └──────────────────────┘                       │  • cooldown + daily cap   │
                                                  │  • one send at a time     │
                                                  └────────────┬──────────────┘
@@ -111,26 +111,28 @@ Don't want to depend on anyone's faucet, including this one? Run the same server
 ```bash
 # on any Linux box with Docker and a public IP
 git clone https://github.com/anukulpandey/zcash-faucet && cd zcash-faucet/deploy
-DOMAIN=$(curl -s ifconfig.me).sslip.io GITHUB_CLIENT_ID=<oauth app id> GITHUB_CLIENT_SECRET=<oauth app secret> docker compose up -d
+DOMAIN=$(curl -s ifconfig.me).sslip.io docker compose up -d
 docker compose logs faucet   # prints the faucet address: fund it with TAZ
 ```
 
-On Google Cloud's free tier, one command creates the VM, static IP and firewall: `PROJECT=<id> GITHUB_CLIENT_ID=<id> GITHUB_CLIENT_SECRET=<secret> sh deploy/gcp.sh`
+On Google Cloud's free tier, one command creates the VM, static IP and firewall: `PROJECT=<id> sh deploy/gcp.sh`
 
-1. Create a GitHub OAuth App (Settings → Developer settings → OAuth Apps) and **tick "Enable Device Flow"**. You need its Client ID and a client secret.
+1. Optional `--github` fast lane: create a GitHub OAuth App (Settings → Developer settings → OAuth Apps), **tick "Enable Device Flow"**, and set `GITHUB_CLIENT_ID` + `GITHUB_CLIENT_SECRET`.
 2. Caddy gets a TLS certificate automatically. `sslip.io` gives you a free hostname for your IP.
 3. **Back up the seed:** `docker compose exec faucet zcash-devtool wallet -w /data/wallet display-mnemonic --enable -i /data/identity.txt`
 
 | Env var | Default | Meaning |
 | --- | --- | --- |
-| `GITHUB_CLIENT_ID` | (required) | OAuth app for device login |
-| `GITHUB_CLIENT_SECRET` | (required) | Lets the server verify and revoke each login token |
+| `POW_DIFFICULTY` | `12` | Base proof-of-work bits (~4k Argon2id hashes); +1 per doubling past 10 claims/hour |
+| `POW_SECRET` | random | Signs challenges; set it so challenges survive a restart |
+| `GITHUB_CLIENT_ID` | (unset) | Optional: enables `--github` |
+| `GITHUB_CLIENT_SECRET` | (unset) | Required with the ID: lets the server verify and revoke each login token |
 | `DRIP_ZAT` | `10000000` | Payout per claim (0.1 TAZ) |
 | `DAILY_CAP_ZAT` | `500000000` | Max paid out per 24h (5 TAZ) |
-| `COOLDOWN_HOURS` | `24` | Per account and per address |
+| `COOLDOWN_HOURS` | `24` | Per address (and per GitHub account with `--github`) |
 | `MIN_GITHUB_AGE_DAYS` | `30` | Reject newer GitHub accounts |
 | `NETWORK` / `LWD_SERVER` | `test` / `zecrocks` | `regtest` + `host:port` for local |
-| `AUTH` | `github` | `none` for local regtest only |
+| `AUTH` | `pow` | `none` for local regtest only |
 
 ## 🛠 Development
 
@@ -143,7 +145,9 @@ Publishing: `npm login` once, then `npm version patch && npm publish && git push
 
 ## 🔒 Security & privacy
 
-GitHub login is only used to stop bots from draining the faucet. Here is exactly what happens:
+**By default there is no login at all.** The CLI mines an Argon2id proof-of-work; the server sees only the address you ask it to pay.
+
+**With `--github`** (optional), the login only replaces mining. Here is exactly what happens:
 
 1. The CLI runs GitHub's [device flow](https://docs.github.com/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps#device-flow) for **the faucet's own OAuth app**, requesting **no scopes**. A no-scope token can only read public profile data: no repos, no email, no private anything. GitHub shows you this on the approval screen.
 2. The CLI **never reads any existing credential** (not `gh`, git or your browser), and **never writes the token to disk**. It lives in memory for one request. (v1.0.0 cached it; v1.1.0+ deletes that old file on every run.)

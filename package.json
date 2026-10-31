@@ -1,6 +1,6 @@
 {
   "name": "zcash-faucet",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Zcash testnet coins (TAZ) from your terminal: npx zcash-faucet <address>",
   "type": "module",
   "bin": {
