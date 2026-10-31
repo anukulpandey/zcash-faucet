@@ -244,7 +244,7 @@ const BANNER = String.raw`    .-~~~~~~-.
     '-.____.-'         t e s t n e t   ·   f a u c e t`;
 
 // Status page: a fake terminal session. Values render server-side and refresh every 30s from /api/status.
-const page = (s) => `<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
+export const page = (s) => `<!doctype html><html lang=en><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
 <title>Zcash Testnet Faucet</title>
 <meta name=description content="Zcash testnet coins (TAZ) from your terminal: npx zcash-faucet <address>">
 <link rel=icon href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>ⓩ</text></svg>">
@@ -283,17 +283,17 @@ a{color:var(--gold);text-decoration:none;border-bottom:1px dotted #f4b72888}a:ho
 <div class=cm style="padding-left:16px"># utest1… · ztestsapling1… · tm…   ${s.dripTaz} TAZ per address every ${s.cooldownSeconds / 3600}h · optional --github skips mining</div></div>
 
 <div class=blk><span class=p></span><span class=c>npx zcash-faucet --status</span>
-<div class=row><span class=k>health</span><span id=health class=${s.healthy ? "ok>● online" : "bad>● degraded"}</span></div>
+<div class=row><span class=k>health</span><span id=health class=${s.healthy === undefined ? "k>● connecting…" : s.healthy ? "ok>● online" : "bad>● degraded"}</span></div>
 <div class=row><span class=k>network</span><span>${s.network}</span></div>
 <div class=row><span class=k>reserve</span><span><span id=meter class=gold>${meter(s)}</span> <span id=bal>${s.balanceTaz ?? "syncing…"}</span> TAZ</span></div>
-<div class=row><span class=k>claims left</span><span id=left>${Math.floor(s.spendableTaz / s.dripTaz)}</span></div>
+<div class=row><span class=k>claims left</span><span id=left>${s.spendableTaz === undefined ? "…" : Math.floor(s.spendableTaz / s.dripTaz)}</span></div>
 <div class=row><span class=k>drips</span><span><span id=d24>${s.drips.last24h}</span> last 24h · <span id=dall>${s.drips.allTime}</span> all-time</span></div>
 <div class=row><span class=k>height</span><span id=h>${s.height ?? "?"}</span></div>
 </div>
 
-<div class=blk><span class=p></span><span class=c>npx zcash-faucet --donate</span><button data-copy="${s.donationAddress ?? ""}">copy address</button>
+<div class=blk><span class=p></span><span class=c>npx zcash-faucet --donate</span><button id=dcopy data-copy="${s.donationAddress ?? ""}">copy address</button>
 <div class=cm style="padding-left:16px"># done testing? send leftover TAZ back so the next dev gets some</div>
-<span class=addr>${s.donationAddress ?? "…"}</span></div>
+<span class=addr id=addr>${s.donationAddress ?? "…"}</span></div>
 
 <div class=blk><span class=p></span><span class=c>cat HOW_IT_WORKS</span>
 <pre class=cm style="padding-left:16px;white-space:pre-wrap">CLI ──Argon2id proof-of-work──▶ faucet API ──zcash-devtool──▶ lightwalletd ──▶ testnet
@@ -305,10 +305,12 @@ no account · no captchas · no IP limits (campus Wi-Fi works) · daily cap</pre
 <script>
 document.addEventListener("click",e=>{const b=e.target.closest("[data-copy]");if(!b)return;navigator.clipboard.writeText(b.dataset.copy).then(()=>{const t=b.textContent;b.textContent="copied ✔";setTimeout(()=>b.textContent=t,1200)})});
 const meter=${meter.toString()};
-setInterval(async()=>{try{const s=await (await fetch("/api/status")).json();const $=id=>document.getElementById(id);
+const upd=async()=>{try{const s=await (await fetch("/api/status")).json();const $=id=>document.getElementById(id);
+if(s.donationAddress){$("addr").textContent=s.donationAddress;$("dcopy").dataset.copy=s.donationAddress}
 $("health").className=s.healthy?"ok":"bad";$("health").textContent=s.healthy?"● online":"● degraded";
 $("meter").textContent=meter(s);$("bal").textContent=s.balanceTaz??"syncing…";$("left").textContent=Math.floor(s.spendableTaz/s.dripTaz);
-$("d24").textContent=s.drips.last24h;$("dall").textContent=s.drips.allTime;$("h").textContent=s.height??"?"}catch{}},30000);
+$("d24").textContent=s.drips.last24h;$("dall").textContent=s.drips.allTime;$("h").textContent=s.height??"?"}catch{}};
+upd();setInterval(upd,30000);
 </script></html>`;
 // Reserve bar: full at 100 drips' worth.
 function meter(s) { const n = Math.max(0, Math.min(20, Math.round((s.spendableTaz / (s.dripTaz * 100)) * 20))); return "[" + "█".repeat(n) + "░".repeat(20 - n) + "]"; }
