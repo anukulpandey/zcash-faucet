@@ -171,12 +171,19 @@ async function claim(base, address, useGithub) {
     body.pow = { seed: ch.body.seed, difficulty: ch.body.difficulty, exp: ch.body.exp, sig: ch.body.sig, nonce: pow.nonce };
   }
   const sp = spinner(`Sending ${s.dripTaz} TAZ (building a shielded transaction takes ~10-60s)…`);
-  const r = await http(`${base}/api/claim`, {
+  let r = await http(`${base}/api/claim`, {
     method: "POST",
     headers: token ? { authorization: `Bearer ${token}` } : {},
-    body: JSON.stringify(body),
+    body: JSON.stringify({ ...body, async: true }),
   });
+  // The server answers right away and sends in the background; poll until the transaction is out.
+  const id = r.body.id;
+  for (const deadline = Date.now() + 300_000; r.body.pending && Date.now() < deadline; ) {
+    await sleep(3000);
+    r = await http(`${base}/api/claim/${id}`).catch(() => r); // a dropped poll is fine, try again
+  }
   sp.stop();
+  if (r.body.pending) throw new Error("The faucet is still sending after 5 minutes. Check your wallet shortly, it may still arrive.");
   if (!r.body.ok) {
     const wait = r.body.retryAfterSeconds ? dim(` (try again in ~${fmtWait(r.body.retryAfterSeconds)})`) : "";
     throw new Error(`${r.body.error ?? `Faucet refused (HTTP ${r.status}).`}${wait}`);
