@@ -92,7 +92,7 @@ The server wraps [zcash-devtool](https://github.com/zcash/zcash-devtool), the Zc
 
 ## 📊 Status & donations
 
-- `npx zcash-faucet --status`, or open the faucet URL in a browser for the status page
+- Live status page: **https://zcash-faucet.vercel.app** (or `npx zcash-faucet --status`)
 - JSON for your own dashboards: `GET /api/status`
 - Done testing? Send leftover TAZ back: `npx zcash-faucet --donate`
 
