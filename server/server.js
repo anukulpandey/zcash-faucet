@@ -1,9 +1,11 @@
 // zcash-faucet server: a funded zcash-devtool wallet behind a tiny HTTP API.
 //   GET  /             status page (balance, donation address, recent drips)
-//   GET  /api/status   same, as JSON (the CLI reads githubClientId from here)
-//   POST /api/claim    {address}  + "Authorization: Bearer <github token>"
+//   GET  /api/status            same, as JSON
+//   GET  /api/challenge?address  signed Argon2id proof-of-work challenge for that address
+//   POST /api/claim              {address, pow}  or  {address} + "Authorization: Bearer <github token>"
 // Zero dependencies: node:http + child_process + a JSON file for cooldowns.
 import http from "node:http";
+import crypto from "node:crypto";
 import { execFile } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -18,8 +20,10 @@ const C = {
   dripZat: +env("DRIP_ZAT", 10_000_000), // 0.1 TAZ
   dailyCapZat: +env("DAILY_CAP_ZAT", 500_000_000), // 5 TAZ/day across everyone
   cooldownS: +env("COOLDOWN_HOURS", 24) * 3600,
-  auth: env("AUTH", "github"), // github | none (none = local regtest only)
-  ghClientId: env("GITHUB_CLIENT_ID", ""),
+  auth: env("AUTH", "pow"), // pow | none (none = local regtest only)
+  powBits: +env("POW_DIFFICULTY", 12), // ~4k Argon2id hashes: ~20s on a modern laptop
+  powSecret: env("POW_SECRET", "") || crypto.randomBytes(32).toString("hex"), // random = challenges die on restart
+  ghClientId: env("GITHUB_CLIENT_ID", ""), // optional fast lane: set id + secret to enable --github
   ghClientSecret: env("GITHUB_CLIENT_SECRET", ""), // lets the server verify + revoke login tokens
   githubApi: env("GITHUB_API", "https://api.github.com"), // overridden only by tests
   minGhAgeDays: +env("MIN_GITHUB_AGE_DAYS", 30),
@@ -117,29 +121,72 @@ async function revoke(token) {
     .catch((e) => console.error("token revoke failed:", e.message));
 }
 
+// --- proof-of-work: memory-hard Argon2id, so GPUs and bot farms gain little over a laptop ---
+// Find a nonce where argon2id(message=nonce, salt=seed) starts with `difficulty` zero bits.
+export const POW_PARAMS = { parallelism: 1, tagLength: 32, memory: 19456, passes: 2 }; // OWASP's Argon2id baseline
+export const zeroBits = (buf) => { let n = 0; for (const b of buf) { if (b) return n + Math.clz32(b) - 24; n += 8; } return n; };
+export const powHash = (seed, nonce) => crypto.argon2Sync("argon2id", { ...POW_PARAMS, message: String(nonce), nonce: Buffer.from(seed, "hex") });
+const powSig = (c, address) => crypto.createHmac("sha256", C.powSecret).update(`${c.seed}.${c.difficulty}.${c.exp}.${address}`).digest("hex");
+const usedSeeds = new Map(); // seed -> exp, so a solved challenge pays once
+
+function challenge(address) {
+  // Harder when many claims land at once: +1 bit (2x work) for each doubling past 10 claims/hour.
+  const lastHour = db.drips.filter((d) => d.ts > now() - 3600).length;
+  const difficulty = C.powBits + Math.min(6, Math.floor(Math.log2(1 + lastHour / 10)));
+  const c = { seed: crypto.randomBytes(16).toString("hex"), difficulty, exp: now() + 900 };
+  return { ...c, sig: powSig(c, address), params: POW_PARAMS };
+}
+
+function checkPow(pow, address) {
+  if (!pow || typeof pow.seed !== "string" || !/^[0-9a-f]{32}$/.test(pow.seed)) return "Missing proof-of-work. Update the CLI: npx zcash-faucet@latest";
+  if (!(pow.exp > now())) return "Proof-of-work challenge expired. Run the command again.";
+  const sig = powSig(pow, address);
+  if (typeof pow.sig !== "string" || pow.sig.length !== sig.length || !crypto.timingSafeEqual(Buffer.from(pow.sig), Buffer.from(sig))) return "Invalid proof-of-work challenge.";
+  if (usedSeeds.has(pow.seed)) return "This proof-of-work was already used.";
+  if (!/^\d{1,15}$/.test(String(pow.nonce)) || zeroBits(powHash(pow.seed, pow.nonce)) < pow.difficulty) return "Proof-of-work does not meet the difficulty.";
+  for (const [k, exp] of usedSeeds) if (exp < now()) usedSeeds.delete(k);
+  usedSeeds.set(pow.seed, pow.exp);
+  return null;
+}
+
 const sentToday = () => db.drips.filter((d) => d.ts > now() - 86400).reduce((s, d) => s + d.zat, 0);
 const wait = (ts) => (ts && now() - ts < C.cooldownS ? C.cooldownS - (now() - ts) : 0);
 
-async function claim(req, body) {
-  const address = String(body.address ?? "").trim();
+// Cheap refusals, checked before anyone spends time mining or logging in.
+function precheck(address) {
   const bad = checkAddress(address);
   if (bad) return [400, { ok: false, error: bad }];
+  const w = wait(db.byAddress[address]);
+  if (w) return [429, { ok: false, error: "This address already got coins today.", retryAfterSeconds: w }];
+  if (sentToday() + C.dripZat > C.dailyCapZat) return [503, { ok: false, error: "Daily payout cap reached. Try again tomorrow.", retryAfterSeconds: 3600 }];
+  if (spendable() < C.dripZat + 10_000) return [503, { ok: false, error: "Faucet is dry or waiting on confirmations. Donate with: npx zcash-faucet --donate", retryAfterSeconds: 600 }];
+  return null;
+}
+
+async function claim(req, body) {
+  const address = String(body.address ?? "").trim();
+  const refused = precheck(address);
+  if (refused) return refused;
 
   let who = "anon";
-  if (C.auth === "github") {
-    const token = req.headers.authorization?.replace(/^Bearer /, "");
-    const user = token && (await githubUser(token));
-    if (!user) return [401, { ok: false, error: "GitHub login required. Run the CLI again to sign in.", needLogin: true }];
+  const token = req.headers.authorization?.replace(/^Bearer /, "");
+  if (C.auth === "none") {
+    // local regtest: no gate
+  } else if (token && C.ghClientId) {
+    const user = await githubUser(token);
+    if (!user) return [401, { ok: false, error: "GitHub login failed. Run the command again, or drop --github to use proof-of-work." }];
     const ageDays = (Date.now() - Date.parse(user.created_at)) / 864e5;
     if (ageDays < C.minGhAgeDays) return [403, { ok: false, error: `GitHub accounts must be at least ${C.minGhAgeDays} days old.` }];
     who = String(user.id);
     const w = wait(db.byGithub[who]);
     if (w) return [429, { ok: false, error: `@${user.login} already claimed today.`, retryAfterSeconds: w }];
+  } else {
+    const powErr = checkPow(body.pow, address);
+    if (powErr) return [403, { ok: false, error: powErr }];
   }
-  const w = wait(db.byAddress[address]);
-  if (w) return [429, { ok: false, error: "This address already got coins today.", retryAfterSeconds: w }];
-  if (sentToday() + C.dripZat > C.dailyCapZat) return [503, { ok: false, error: "Daily payout cap reached. Try again tomorrow.", retryAfterSeconds: 3600 }];
-  if (spendable() < C.dripZat + 10_000) return [503, { ok: false, error: "Faucet is dry or waiting on confirmations. Donate with: npx zcash-faucet --donate", retryAfterSeconds: 600 }];
+  // Re-check: the address may have been paid while this request was mining or logging in.
+  const late = precheck(address);
+  if (late) return late;
 
   // Reserve first so parallel requests from the same user can't double-claim.
   db.byAddress[address] = now();
@@ -166,13 +213,14 @@ function status() {
   const healthy = state.lastSyncOk && now() - state.lastSyncOk < C.syncEveryS * 5;
   return {
     ok: true,
-    version: "1.1.0", // bump with package.json; shows which server build is live
+    version: "1.2.0", // bump with package.json; shows which server build is live
     healthy: !!healthy,
     network: C.network === "test" ? "testnet" : C.network,
     dripTaz: C.dripZat / 1e8,
     cooldownSeconds: C.cooldownS,
     auth: C.auth,
-    githubClientId: C.ghClientId || null,
+    pow: C.auth === "pow" ? { baseDifficulty: C.powBits, params: POW_PARAMS } : null,
+    githubClientId: C.ghClientId || null, // set = optional --github fast lane
     balanceTaz: state.balance ? state.balance.total / 1e8 : null,
     spendableTaz: spendable() / 1e8,
     height: state.height,
@@ -228,10 +276,10 @@ a{color:var(--gold);text-decoration:none;border-bottom:1px dotted #f4b72888}a:ho
 <div class=bar><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i><span>zcash-faucet — testnet — 80×24</span></div>
 <div class=body>
 <pre class=banner aria-label="Zcash testnet faucet">${BANNER}</pre>
-<div class=tag>Testnet TAZ, straight to your terminal. One command, sign in with GitHub once.</div>
+<div class=tag>Testnet TAZ, straight to your terminal. One command. No account, no captcha: your machine mines a short proof-of-work.</div>
 
 <div class=blk><span class=p></span><span class=c>npx zcash-faucet &lt;your-testnet-address&gt;</span><button data-copy="npx zcash-faucet ">copy</button>
-<div class=cm style="padding-left:16px"># utest1… · ztestsapling1… · tm…   ${s.dripTaz} TAZ per GitHub account &amp; address every ${s.cooldownSeconds / 3600}h</div></div>
+<div class=cm style="padding-left:16px"># utest1… · ztestsapling1… · tm…   ${s.dripTaz} TAZ per address every ${s.cooldownSeconds / 3600}h · optional --github skips mining</div></div>
 
 <div class=blk><span class=p></span><span class=c>npx zcash-faucet --status</span>
 <div class=row><span class=k>health</span><span id=health class=${s.healthy ? "ok>● online" : "bad>● degraded"}</span></div>
@@ -247,8 +295,8 @@ a{color:var(--gold);text-decoration:none;border-bottom:1px dotted #f4b72888}a:ho
 <span class=addr>${s.donationAddress ?? "…"}</span></div>
 
 <div class=blk><span class=p></span><span class=c>cat HOW_IT_WORKS</span>
-<pre class=cm style="padding-left:16px;white-space:pre-wrap">CLI ──GitHub device login──▶ faucet API ──zcash-devtool──▶ lightwalletd ──▶ testnet
-no captchas · no IP limits (campus Wi-Fi works) · small drips · daily cap</pre></div>
+<pre class=cm style="padding-left:16px;white-space:pre-wrap">CLI ──Argon2id proof-of-work──▶ faucet API ──zcash-devtool──▶ lightwalletd ──▶ testnet
+no account · no captchas · no IP limits (campus Wi-Fi works) · daily cap</pre></div>
 
 <div class=blk><span class=p></span><span class=c>open</span> <a href="https://github.com/anukulpandey/zcash-faucet">github</a> · <a href="https://www.npmjs.com/package/zcash-faucet">npm</a> · <a href="/api/status">/api/status</a></div>
 <span class=p></span><span class=cur></span>
@@ -273,6 +321,11 @@ const server = http.createServer(async (req, res) => {
   try {
     if (req.method === "GET" && req.url === "/") return send(res, 200, page(status()), "text/html; charset=utf-8");
     if (req.method === "GET" && req.url === "/api/status") return send(res, 200, status());
+    if (req.method === "GET" && req.url.startsWith("/api/challenge")) {
+      const address = new URL(req.url, "http://x").searchParams.get("address")?.trim() ?? "";
+      const refused = precheck(address);
+      return refused ? send(res, ...refused) : send(res, 200, { ok: true, ...challenge(address) });
+    }
     if (req.method === "POST" && req.url === "/api/claim") {
       let raw = "";
       for await (const chunk of req) if ((raw += chunk).length > 4096) return send(res, 413, { ok: false, error: "Body too large." });
@@ -289,7 +342,8 @@ const server = http.createServer(async (req, res) => {
 });
 
 if (process.argv[1]?.endsWith("server.js")) {
-  if (C.auth === "github" && !(C.ghClientId && C.ghClientSecret)) throw new Error("Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET (or AUTH=none for local regtest).");
+  if (C.ghClientId && !C.ghClientSecret) throw new Error("GITHUB_CLIENT_ID needs GITHUB_CLIENT_SECRET too (or unset both to run proof-of-work only).");
+  if (C.auth === "pow" && typeof crypto.argon2Sync !== "function") throw new Error("Proof-of-work needs Node 24.7+ (crypto.argon2).");
   server.listen(C.port, () => console.log(`zcash-faucet server on :${C.port} (${C.network}, auth=${C.auth})`));
   boot().then(sync).catch((e) => console.error("boot failed:", e.message));
   setInterval(sync, C.syncEveryS * 1000);

@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 // zcash-faucet: request Zcash testnet coins (TAZ) from your terminal.
-// Signs you in with GitHub (device flow, like `gh auth login`), then asks the faucet server to pay.
+// Mines a short Argon2id proof-of-work (no account needed), then asks the faucet server to pay.
+// --github skips mining by signing in with GitHub's device flow instead.
 import { readFileSync, rmSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, availableParallelism } from "node:os";
+import crypto from "node:crypto";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { pathToFileURL } from "node:url";
@@ -11,6 +13,9 @@ const DEFAULT_FAUCET = "https://zcash-faucet.onrender.com"; // override with --f
 const { version } = JSON.parse(readFileSync(new URL("../package.json", import.meta.url)));
 // v1.0.0 cached the login token here; we no longer store it, and delete it if present.
 const OLD_TOKEN_FILE = join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "zcash-faucet", "github-token");
+
+// Mine on every core: libuv's threadpool (4 by default) runs the async Argon2id calls.
+process.env.UV_THREADPOOL_SIZE ??= String(Math.min(16, Math.max(4, availableParallelism())));
 
 const tty = process.stdout.isTTY && !process.env.NO_COLOR;
 const paint = (code) => (s) => (tty ? `\x1b[${code}m${s}\x1b[0m` : String(s));
@@ -111,6 +116,7 @@ async function showStatus(base) {
   row("network", s.network);
   row("balance", s.balanceTaz == null ? dim("syncing…") : `${s.balanceTaz} TAZ ${dim(`(${s.spendableTaz} spendable)`)}`);
   row("drip", `${s.dripTaz} TAZ every ${fmtWait(s.cooldownSeconds)}`);
+  row("gate", s.auth === "pow" ? `Argon2id proof-of-work${s.githubClientId ? " · or --github" : ""}` : s.auth);
   row("drips", `${s.drips.last24h} last 24h · ${s.drips.allTime} all-time`);
   row("height", s.height ?? "?");
   console.log(`\n  ${dim("Donate leftover TAZ:")} npx zcash-faucet --donate`);
@@ -121,14 +127,54 @@ async function showDonate(base) {
   console.log(`  ${bold("Send leftover TAZ back so the next dev gets some:")}\n\n  ${cyan(s.donationAddress ?? "address not available yet")}\n`);
 }
 
-async function claim(base, address) {
+export const zeroBits = (buf) => { let n = 0; for (const b of buf) { if (b) return n + Math.clz32(b) - 24; n += 8; } return n; };
+
+// Find a nonce where argon2id(message=nonce, salt=seed) starts with `difficulty` zero bits.
+// Memory-hard (19 MiB per hash), so a GPU or bot farm gains little over your laptop.
+export async function mine({ seed, difficulty, params }, onProgress = () => {}) {
+  if (typeof crypto.argon2 !== "function") throw new Error(`Proof-of-work needs Node 24.7 or newer (you have ${process.version}). Upgrade Node, or use --github.`);
+  const salt = Buffer.from(seed, "hex");
+  let next = 0, found = null;
+  const t0 = Date.now();
+  const worker = async () => {
+    while (found === null) {
+      const nonce = next++;
+      const tag = await new Promise((ok, fail) => crypto.argon2("argon2id", { ...params, message: String(nonce), nonce: salt }, (e, b) => (e ? fail(e) : ok(b))));
+      if (found === null && zeroBits(tag) >= difficulty) found = String(nonce);
+      if (nonce % 64 === 0) onProgress(next, Date.now() - t0);
+    }
+  };
+  await Promise.all(Array.from({ length: +process.env.UV_THREADPOOL_SIZE || 4 }, worker));
+  return { nonce: found, hashes: next, ms: Date.now() - t0 };
+}
+
+async function claim(base, address, useGithub) {
   const s = await getStatus(base);
-  const token = s.auth === "github" ? await githubLogin(s.githubClientId) : null;
+  const body = { address };
+  let token = null;
+  if (s.auth === "none") {
+    // local regtest faucet: no gate
+  } else if (useGithub) {
+    if (!s.githubClientId) throw new Error("This faucet doesn't offer GitHub login. Drop --github to use proof-of-work.");
+    token = await githubLogin(s.githubClientId);
+  } else {
+    const ch = await http(`${base}/api/challenge?address=${encodeURIComponent(address)}`);
+    if (!ch.body.ok) {
+      const wait = ch.body.retryAfterSeconds ? dim(` (try again in ~${fmtWait(ch.body.retryAfterSeconds)})`) : "";
+      throw new Error(`${ch.body.error ?? `Faucet refused (HTTP ${ch.status}).`}${wait}`);
+    }
+    const expected = 2 ** ch.body.difficulty;
+    const label = (h, ms) => `Mining proof-of-work · ${Math.min(99, Math.round((h / expected) * 100))}% of expected · ${h.toLocaleString()} hashes · ${(ms / 1000).toFixed(0)}s`;
+    const sp = spinner(`Mining proof-of-work (Argon2id, difficulty ${ch.body.difficulty}, usually under a minute)…`);
+    const pow = await mine(ch.body, (h, ms) => sp.set(label(h, ms)));
+    sp.stop(`${green("✔")} Proof-of-work done ${dim(`(${pow.hashes.toLocaleString()} hashes in ${(pow.ms / 1000).toFixed(1)}s, no account needed)`)}`);
+    body.pow = { seed: ch.body.seed, difficulty: ch.body.difficulty, exp: ch.body.exp, sig: ch.body.sig, nonce: pow.nonce };
+  }
   const sp = spinner(`Sending ${s.dripTaz} TAZ (building a shielded transaction takes ~10-60s)…`);
   const r = await http(`${base}/api/claim`, {
     method: "POST",
     headers: token ? { authorization: `Bearer ${token}` } : {},
-    body: JSON.stringify({ address }),
+    body: JSON.stringify(body),
   });
   sp.stop();
   if (!r.body.ok) {
@@ -144,11 +190,12 @@ async function claim(base, address) {
 
 const HELP = `
   ${bold("Usage")}
-    npx zcash-faucet <testnet-address>   request TAZ (signs in with GitHub once)
+    npx zcash-faucet <testnet-address>   request TAZ (mines a short proof-of-work, no account)
     npx zcash-faucet --status            faucet health, balance, drip size
     npx zcash-faucet --donate            address to send leftover TAZ back to
 
   ${bold("Options")}
+    --github         sign in with GitHub instead of mining (no permissions, revoked after use)
     --faucet <url>   use another zcash-faucet server, e.g. your local regtest one
                      (default ${DEFAULT_FAUCET}, or set ZCASH_FAUCET_URL)
     -h, --help       show this help
@@ -169,7 +216,7 @@ async function main(argv) {
   if (!address || args.includes("-h") || args.includes("--help")) return console.log(HELP);
   const bad = checkAddress(address);
   if (bad) throw new Error(bad);
-  await claim(base, address);
+  await claim(base, address, args.includes("--github"));
 }
 
 if (process.argv[1] && (import.meta.url === pathToFileURL(process.argv[1]).href || process.argv[1].endsWith("zcash-faucet"))) {

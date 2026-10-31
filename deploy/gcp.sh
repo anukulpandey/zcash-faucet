@@ -1,8 +1,8 @@
 #!/bin/sh
 # Creates the faucet VM on Google Cloud's free tier (e2-micro, us-central1) with a static IP.
-#   PROJECT=<id> GITHUB_CLIENT_ID=<oauth app id> GITHUB_CLIENT_SECRET=<oauth app secret> sh deploy/gcp.sh
+#   PROJECT=<id> [GITHUB_CLIENT_ID=<id> GITHUB_CLIENT_SECRET=<secret>] sh deploy/gcp.sh   (GitHub vars optional)
 set -e
-: "${PROJECT:?}" "${GITHUB_CLIENT_ID:?}" "${GITHUB_CLIENT_SECRET:?}"
+: "${PROJECT:?}"
 R=us-central1 Z=us-central1-a
 g() { gcloud --project "$PROJECT" "$@"; }
 g services enable compute.googleapis.com
