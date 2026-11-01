@@ -405,4 +405,7 @@ if (process.argv[1]?.endsWith("server.js")) {
   server.listen(C.port, () => console.log(`zcash-faucet server on :${C.port} (${C.network}, auth=${C.auth})`));
   boot().then(sync).catch((e) => console.error("boot failed:", e.message));
   setInterval(sync, C.syncEveryS * 1000);
+  // Render free sleeps after 15 min without inbound traffic; ping our own public URL so it never does.
+  const self = process.env.RENDER_EXTERNAL_URL;
+  if (self) setInterval(() => fetch(`${self}/api/status`).catch(() => {}), 10 * 60_000);
 }
