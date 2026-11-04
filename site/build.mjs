@@ -5,6 +5,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 process.env.DATA_DIR = mkdtempSync(join(tmpdir(), "zf-site-")); // importing the server touches its data dir
 const { page } = await import("../server/server.js");
-const placeholder = { dripTaz: 0.1, cooldownSeconds: 86400, network: "testnet", drips: { last24h: "…", allTime: "…" }, height: "…", balanceTaz: "…" };
+const placeholder = { dripTaz: 0.1, cooldownSeconds: 86400, claimsPerWindow: 2, network: "testnet", drips: { last24h: "…", allTime: "…" }, height: "…", balanceTaz: "…" };
 writeFileSync(new URL("index.html", import.meta.url), page(placeholder));
 console.log("wrote site/index.html");

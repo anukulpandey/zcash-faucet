@@ -35,14 +35,17 @@ test("claim flow against the server", async (t) => {
   assert.equal(ok.code, 0, ok.out);
   assert.match(ok.out, /ab12cd34/);
 
+  const second = await run(["utest1goodaddress"], env);
+  assert.equal(second.code, 0, second.out);
+
   const again = await run(["utest1goodaddress"], env);
   assert.equal(again.code, 1);
-  assert.match(again.out, /already got coins today/);
+  assert.match(again.out, /already got coins 2 times today/);
 
   const fail = await run(["utest1fail"], env);
   assert.match(fail.out, /cooldown was not used/);
   const failStatus = await (await fetch(base + "/api/status")).json();
-  assert.equal(failStatus.drips.allTime, 1);
+  assert.equal(failStatus.drips.allTime, 2);
 
   const mainnet = await fetch(base + "/api/claim", { method: "POST", body: JSON.stringify({ address: "u1abc" }) });
   assert.equal(mainnet.status, 400);

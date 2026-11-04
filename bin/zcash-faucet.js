@@ -115,7 +115,9 @@ async function showStatus(base) {
   row("health", s.healthy ? green("● online") : red(`● degraded${s.lastSyncError ? ` (${s.lastSyncError})` : ""}`));
   row("network", s.network);
   row("balance", s.balanceTaz == null ? dim("syncing…") : `${s.balanceTaz} TAZ ${dim(`(${s.spendableTaz} spendable)`)}`);
-  row("drip", `${s.dripTaz} TAZ every ${fmtWait(s.cooldownSeconds)}`);
+  row("drip", s.claimsPerWindow > 1
+    ? `${s.dripTaz} TAZ, ${s.claimsPerWindow} times every ${fmtWait(s.cooldownSeconds)}`
+    : `${s.dripTaz} TAZ every ${fmtWait(s.cooldownSeconds)}`);
   row("gate", s.auth === "pow" ? `Argon2id proof-of-work${s.githubClientId ? " · or --github" : ""}` : s.auth);
   row("drips", `${s.drips.last24h} last 24h · ${s.drips.allTime} all-time`);
   row("height", s.height ?? "?");
