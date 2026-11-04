@@ -21,6 +21,7 @@ const C = {
   dripZat: +env("DRIP_ZAT", 10_000_000), // 0.1 TAZ
   dailyCapZat: +env("DAILY_CAP_ZAT", 500_000_000), // 5 TAZ/day across everyone
   cooldownS: +env("COOLDOWN_HOURS", 24) * 3600,
+  claimsPerWindow: +env("CLAIMS_PER_WINDOW", 2),
   auth: env("AUTH", "pow"), // pow | none (none = local regtest only)
   powBits: +env("POW_DIFFICULTY", 12), // ~4k Argon2id hashes: ~20s on a modern laptop
   powSecret: env("POW_SECRET", "") || crypto.randomBytes(32).toString("hex"), // random = challenges die on restart
@@ -36,7 +37,7 @@ const identity = join(C.data, "identity.txt");
 const dbFile = join(C.data, "claims.json");
 mkdirSync(C.data, { recursive: true });
 
-// --- state: {byGithub:{id:ts}, byAddress:{addr:ts}, drips:[{ts,txid,zat}]} ---
+// --- state: {byGithub:{id:[ts]}, byAddress:{addr:[ts]}, drips:[{ts,txid,zat}]} ---
 // ponytail: on an ephemeral disk (Render free) cooldowns reset on restart; rebuild them from the
 // wallet's sent txs (OVK-decrypted memos/addresses) if restarts ever become an abuse vector.
 const db = existsSync(dbFile) ? JSON.parse(readFileSync(dbFile, "utf8")) : { byGithub: {}, byAddress: {}, drips: [] };
@@ -184,14 +185,32 @@ function checkPow(pow, address) {
 }
 
 const sentToday = () => db.drips.filter((d) => d.ts > now() - 86400).reduce((s, d) => s + d.zat, 0);
-const wait = (ts) => (ts && now() - ts < C.cooldownS ? C.cooldownS - (now() - ts) : 0);
+// Claim times still inside the window. Older claims.json files stored one timestamp, not a list.
+const recent = (map, key) => {
+  const v = map[key];
+  const list = v == null ? [] : Array.isArray(v) ? v : [v];
+  return list.filter((t) => now() - t < C.cooldownS);
+};
+// Seconds until a slot opens. The oldest claim in a full window has to age out.
+const wait = (map, key) => {
+  const hits = recent(map, key);
+  if (hits.length < C.claimsPerWindow) return 0;
+  return C.cooldownS - (now() - Math.min(...hits));
+};
+const stamp = (map, key) => { const hits = recent(map, key); hits.push(now()); map[key] = hits; };
+const unstamp = (map, key) => {
+  const hits = recent(map, key);
+  hits.pop();
+  if (hits.length) map[key] = hits;
+  else delete map[key];
+};
 
 // Cheap refusals, checked before anyone spends time mining or logging in.
 function precheck(address) {
   const bad = checkAddress(address);
   if (bad) return [400, { ok: false, error: bad }];
-  const w = wait(db.byAddress[address]);
-  if (w) return [429, { ok: false, error: "This address already got coins today.", retryAfterSeconds: w }];
+  const w = wait(db.byAddress, address);
+  if (w) return [429, { ok: false, error: `This address already got coins ${C.claimsPerWindow} times today.`, retryAfterSeconds: w }];
   if (sentToday() + C.dripZat > C.dailyCapZat) return [503, { ok: false, error: "Daily payout cap reached. Try again tomorrow.", retryAfterSeconds: 3600 }];
   if (spendable() < C.dripZat + 10_000) return [503, { ok: false, error: "Faucet is dry or waiting on confirmations. Donate with: npx zcash-faucet --donate", retryAfterSeconds: 600 }];
   return null;
@@ -212,8 +231,8 @@ async function claim(req, body) {
     const ageDays = (Date.now() - Date.parse(user.created_at)) / 864e5;
     if (ageDays < C.minGhAgeDays) return [403, { ok: false, error: `GitHub accounts must be at least ${C.minGhAgeDays} days old.` }];
     who = String(user.id);
-    const w = wait(db.byGithub[who]);
-    if (w) return [429, { ok: false, error: `@${user.login} already claimed today.`, retryAfterSeconds: w }];
+    const w = wait(db.byGithub, who);
+    if (w) return [429, { ok: false, error: `@${user.login} already claimed ${C.claimsPerWindow} times today.`, retryAfterSeconds: w }];
   } else {
     const powErr = checkPow(body.pow, address);
     if (powErr) return [403, { ok: false, error: powErr }];
@@ -222,9 +241,9 @@ async function claim(req, body) {
   const late = precheck(address);
   if (late) return late;
 
-  // Reserve first so parallel requests from the same user can't double-claim.
-  db.byAddress[address] = now();
-  if (who !== "anon") db.byGithub[who] = now();
+  // Reserve first so parallel requests from the same user can't claim past the window.
+  stamp(db.byAddress, address);
+  if (who !== "anon") stamp(db.byGithub, who);
   save();
   const pay = async () => { try {
     const out = await wallet(["send", "-i", identity, "--address", address, "--value", String(C.dripZat), "--memo", "Thanks for building on Zcash! (zcash-faucet)", "--target-note-count", "10", ...lwd], "y\n");
@@ -235,8 +254,8 @@ async function claim(req, body) {
     sync(); // refresh balance in the background
     return [200, { ok: true, txid, explorerUrl: txid ? C.explorer + txid : null, amountZat: C.dripZat, amountTaz: C.dripZat / 1e8 }];
   } catch (e) {
-    delete db.byAddress[address];
-    if (who !== "anon") delete db.byGithub[who];
+    unstamp(db.byAddress, address);
+    if (who !== "anon") unstamp(db.byGithub, who);
     save();
     console.error("send failed:", e.message);
     return [502, { ok: false, error: `Send failed, your cooldown was not used: ${e.message}`, retryAfterSeconds: 120 }];
@@ -255,11 +274,12 @@ function status() {
   const healthy = state.lastSyncOk && now() - state.lastSyncOk < C.syncEveryS * 5;
   return {
     ok: true,
-    version: "1.3.0", // bump with package.json; shows which server build is live
+    version: "1.3.1", // bump with package.json; shows which server build is live
     healthy: !!healthy,
     network: C.network === "test" ? "testnet" : C.network,
     dripTaz: C.dripZat / 1e8,
     cooldownSeconds: C.cooldownS,
+    claimsPerWindow: C.claimsPerWindow,
     auth: C.auth,
     pow: C.auth === "pow" ? { baseDifficulty: C.powBits, params: POW_PARAMS } : null,
     githubClientId: C.ghClientId || null, // set = optional --github fast lane
@@ -322,7 +342,7 @@ a{color:var(--gold);text-decoration:none;border-bottom:1px dotted #f4b72888}a:ho
 <div class=tag>Testnet TAZ, straight to your terminal. One command. No account, no captcha: your machine mines a short proof-of-work.</div>
 
 <div class=blk><span class=p></span><span class=c>npx zcash-faucet &lt;your-testnet-address&gt;</span><button data-copy="npx zcash-faucet ">copy</button>
-<div class=cm style="padding-left:16px"># utest1… · ztestsapling1… · tm…   ${s.dripTaz} TAZ per address every ${s.cooldownSeconds / 3600}h · optional --github skips mining</div></div>
+<div class=cm style="padding-left:16px"># utest1… · ztestsapling1… · tm…   ${s.dripTaz} TAZ, ${s.claimsPerWindow ?? 2} times per address every ${s.cooldownSeconds / 3600}h · optional --github skips mining</div></div>
 
 <div class=blk><span class=p></span><span class=c>npx zcash-faucet --status</span>
 <div class=row><span class=k>health</span><span id=health class=${s.healthy === undefined ? "k>● connecting…" : s.healthy ? "ok>● online" : "bad>● degraded"}</span></div>

@@ -35,9 +35,11 @@ test("proof-of-work claims", async (t) => {
   assert.match((await claim("utest1bbb", p)).error, /Invalid proof-of-work challenge/, "proof moved to another address");
   assert.match((await claim("utest1aaa", { ...p, difficulty: 0 })).error, /Invalid proof-of-work challenge/, "difficulty tampered");
   assert.equal((await claim("utest1aaa", p)).ok, true);
+  const p2 = await solved("utest1aaa");
+  assert.equal((await claim("utest1aaa", p2)).ok, true, "second claim inside the window");
   const again = await solved("utest1ccc");
   assert.equal((await claim("utest1ccc", again)).ok, true);
-  assert.match((await claim("utest1ccc", again)).error, /already got coins today|already used/, "proof replayed");
+  assert.match((await claim("utest1ccc", again)).error, /already got coins|already used/, "proof replayed");
 
   // a failed send gives the cooldown back, but the proof stays spent
   const f = await solved("utest1fail");
@@ -45,5 +47,5 @@ test("proof-of-work claims", async (t) => {
   assert.match((await claim("utest1fail", f)).error, /already used/);
 
   // an address on cooldown is refused before anyone mines
-  assert.match((await challenge("utest1aaa")).error, /already got coins today/);
+  assert.match((await challenge("utest1aaa")).error, /already got coins 2 times today/);
 });

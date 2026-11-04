@@ -21,7 +21,7 @@ test("usage stats from wallet history", () => {
 
 test("status page script parses", async () => {
   const { page } = await import("../server/server.js");
-  const html = page({ dripTaz: 0.1, cooldownSeconds: 86400, network: "testnet", drips: { last24h: 0, allTime: 0 } });
+  const html = page({ dripTaz: 0.1, cooldownSeconds: 86400, claimsPerWindow: 2, network: "testnet", drips: { last24h: 0, allTime: 0 } });
   const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
   assert.ok(scripts.length);
   for (const js of scripts) new Function(js); // throws SyntaxError if the page would break

@@ -62,7 +62,7 @@ Most Zcash faucets died from bots draining them. This one is built so that doesn
 
 | Problem | What zcash-faucet does |
 | --- | --- |
-| Bots drain the wallet | **Argon2id proof-of-work**, no account needed. It's memory-hard (19 MiB per hash), so GPUs and bot farms gain little over a laptop. Each proof is signed for one address, pays once, and gets harder when claims spike. One claim per address every 24h. |
+| Bots drain the wallet | **Argon2id proof-of-work**, no account needed. It's memory-hard (19 MiB per hash), so GPUs and bot farms gain little over a laptop. Each proof is signed for one address, pays once, and gets harder when claims spike. Two claims per address every 24h. |
 | Identity shouldn't be required | No login by default. `--github` is an optional fast lane: no scopes, token revoked right after the check. |
 | Per-IP limits block whole classrooms | **No IP limits.** 40 students on one campus Wi-Fi can all claim. |
 | Big payouts empty it fast | Modest drips (0.1 TAZ) and a global daily cap. |
@@ -131,7 +131,8 @@ On Google Cloud's free tier, one command creates the VM, static IP and firewall:
 | `GITHUB_CLIENT_SECRET` | (unset) | Required with the ID: lets the server verify and revoke each login token |
 | `DRIP_ZAT` | `10000000` | Payout per claim (0.1 TAZ) |
 | `DAILY_CAP_ZAT` | `500000000` | Max paid out per 24h (5 TAZ) |
-| `COOLDOWN_HOURS` | `24` | Per address (and per GitHub account with `--github`) |
+| `COOLDOWN_HOURS` | `24` | Window for the per-address (and per-GitHub) claim limit |
+| `CLAIMS_PER_WINDOW` | `2` | Claims allowed inside that window |
 | `MIN_GITHUB_AGE_DAYS` | `30` | Reject newer GitHub accounts |
 | `NETWORK` / `LWD_SERVER` | `test` / `zecrocks` | `regtest` + `host:port` for local |
 | `AUTH` | `pow` | `none` for local regtest only |
@@ -155,7 +156,7 @@ Publishing: `npm login` once, then `npm version patch && npm publish && git push
 2. The CLI **never reads any existing credential** (not `gh`, git or your browser), and **never writes the token to disk**. It lives in memory for one request. (v1.0.0 cached it; v1.1.0+ deletes that old file on every run.)
 3. The server first asks GitHub whether the token belongs to this faucet's app and carries no scopes. **Any other token is refused without being used.**
 4. It reads your public user ID and account creation date (`GET /user`), then **immediately revokes the token** through GitHub's API, so it can never be reused, even by whoever runs the server.
-5. Only your numeric GitHub ID and the claim time are stored, for the 24h cooldown.
+5. Only your numeric GitHub ID and the claim times are stored, for the 24h window.
 
 The whole flow is about 40 lines: [`githubLogin` in the CLI](bin/zcash-faucet.js) and [`githubUser` / `revoke` on the server](server/server.js), with a test in [test/github-auth.test.js](test/github-auth.test.js). You can also revoke the app any time at github.com/settings/applications. Found a problem? Please open an issue.
 
