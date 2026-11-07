@@ -100,6 +100,7 @@ The server wraps [zcash-devtool](https://github.com/zcash/zcash-devtool), the Zc
 
 ## 👛 Don't have a testnet address yet?
 
+- **[zcash-testnet-wallet](https://github.com/anukulpandey/zcash-testnet-wallet)** (macOS): `npx zcash-testnet-wallet` creates a testnet wallet, shows its address + QR and funds it from this faucet in one command
 - **[zcash-devtool](https://github.com/zcash/zcash-devtool)**: `wallet init … -n test`, then `wallet list-addresses` (see its [walkthrough](https://github.com/zcash/zcash-devtool/blob/main/doc/walkthrough.md))
 - **[zingo-cli](https://github.com/zingolabs/zingolib)**: start it with `--chain testnet`, then run `addresses`
 - **Zallet / zcashd** on testnet: `z_getnewaccount` → `z_getaddressforaccount`
