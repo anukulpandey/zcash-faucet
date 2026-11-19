@@ -1,0 +1,21 @@
+# Backs up the faucet's usage stats into the repo at the end of every UTC day (stats/stats.json + the README chart).
+name: stats
+on:
+  schedule: [{ cron: "55 23 * * *" }]
+  workflow_dispatch:
+permissions: { contents: write }
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24 }
+      - env: { URL: "${{ vars.FAUCET_URL }}" }
+        shell: bash
+        run: |
+          curl -fsS -m 120 --retry 3 --retry-delay 30 "$URL/api/stats" | node scripts/stats-snapshot.mjs
+          git add stats
+          git diff --cached --quiet && exit 0   # quiet day, nothing to commit
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "stats: $(date -u +%F)"
+          git push

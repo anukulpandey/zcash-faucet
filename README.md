@@ -98,6 +98,10 @@ The server wraps [zcash-devtool](https://github.com/zcash/zcash-devtool), the Zc
 - JSON for your own dashboards: `GET /api/status`
 - Done testing? Send leftover TAZ back: `npx zcash-faucet --donate`
 
+Drips per day, backed up into this repo every night ([stats/stats.json](stats/stats.json)):
+
+![drips per day](stats/drips.svg)
+
 ## 👛 Don't have a testnet address yet?
 
 - **[zcash-testnet-wallet](https://github.com/anukulpandey/zcash-testnet-wallet)** (macOS): `npx zcash-testnet-wallet` creates a testnet wallet, shows its address + QR and funds it from this faucet in one command
