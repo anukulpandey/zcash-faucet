@@ -8,6 +8,7 @@
 ![node](https://img.shields.io/badge/node-%3E%3D24.7-339933)
 ![deps](https://img.shields.io/badge/dependencies-0-brightgreen)
 ![network](https://img.shields.io/badge/network-testnet%20only-f4b728)
+[![drips](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fanukulpandey%2Fzcash-faucet%2Fmain%2Fstats%2Fstats.json&query=%24.drips&label=drips%20so%20far&color=f4b728)](stats/stats.json)
 [![uptime](https://github.com/anukulpandey/zcash-faucet/actions/workflows/uptime.yml/badge.svg)](https://github.com/anukulpandey/zcash-faucet/actions/workflows/uptime.yml)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
@@ -18,6 +19,12 @@ npx zcash-faucet utest1your_testnet_address...
 ```
 
 One command, **no account**. Your machine mines a short proof-of-work, and TAZ arrives at your **unified, Sapling or transparent** testnet address.
+
+## 📈 Drips so far
+
+![drips so far, per day](stats/drips.svg)
+
+Counted from the chain and backed up into this repo every night: [stats/stats.json](stats/stats.json).
 
 ---
 
@@ -97,10 +104,6 @@ The server wraps [zcash-devtool](https://github.com/zcash/zcash-devtool), the Zc
 - Live status page: **https://zcash-faucet.vercel.app** (or `npx zcash-faucet --status`)
 - JSON for your own dashboards: `GET /api/status`
 - Done testing? Send leftover TAZ back: `npx zcash-faucet --donate`
-
-Drips per day, backed up into this repo every night ([stats/stats.json](stats/stats.json)):
-
-![drips per day](stats/drips.svg)
 
 ## 👛 Don't have a testnet address yet?
 

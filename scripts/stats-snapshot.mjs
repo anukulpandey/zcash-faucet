@@ -21,7 +21,7 @@ export function merge(old, cur) {
 }
 
 export function svg(s) {
-  const W = 800, H = 220, top = 40, bottom = 24, by = Object.fromEntries(s.byDay.map((d) => [d.day, d.drips]));
+  const W = 800, H = 250, top = 70, bottom = 24, by = Object.fromEntries(s.byDay.map((d) => [d.day, d.drips]));
   const days = [];
   if (s.byDay.length) for (let t = Date.parse(s.byDay[0].day), end = Date.parse(s.byDay.at(-1).day); t <= end; t += 864e5) days.push(new Date(t).toISOString().slice(0, 10));
   const peak = Math.max(1, ...Object.values(by)), bw = W / Math.max(days.length, 1), ph = H - top - bottom;
@@ -29,9 +29,10 @@ export function svg(s) {
     const n = by[day] ?? 0, h = (n / peak) * ph;
     return `<rect x="${(i * bw + bw * 0.1).toFixed(1)}" y="${(top + ph - h).toFixed(1)}" width="${(bw * 0.8).toFixed(1)}" height="${h.toFixed(1)}" rx="2"><title>${day}: ${n}</title></rect>`;
   }).join("");
-  const title = `${s.drips} drips · ${s.tazSent.toFixed(2)} TAZ sent · ${s.donations} donations (${s.tazDonated.toFixed(2)} TAZ) · peak ${peak}/day`;
+  const title = `${s.tazSent.toFixed(2)} TAZ sent · ${s.donations} donations (${s.tazDonated.toFixed(2)} TAZ) · peak ${peak}/day`;
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" font-family="ui-monospace,monospace" font-size="13" fill="#888">
-<text x="0" y="16">${title}</text>
+<text x="0" y="30" font-size="32" font-weight="700" fill="#f4b728">${s.drips.toLocaleString("en-US")}<tspan font-size="15" font-weight="400" fill="#888" dx="8">drips so far</tspan></text>
+<text x="0" y="54">${title}</text>
 <g fill="#f4b728">${bars}</g>
 <text x="0" y="${H - 6}">${days[0] ?? ""}</text><text x="${W}" y="${H - 6}" text-anchor="end">${days.at(-1) ?? ""}</text>
 </svg>
