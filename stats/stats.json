@@ -1,6 +1,6 @@
 {
-  "drips": 328,
-  "tazSent": 33.74905,
+  "drips": 331,
+  "tazSent": 34.04955,
   "donations": 10,
   "tazDonated": 70.30534364,
   "firstDrip": "2026-10-31T08:40:20.000Z",
@@ -103,7 +103,7 @@
     },
     {
       "day": "2026-11-24",
-      "drips": 2
+      "drips": 5
     }
   ]
 }
